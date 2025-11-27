@@ -40,7 +40,9 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
       config.component ||
       // Default component: simple wrapper with data-slot-id attribute
       (({ children }: { children?: ReactNode }) => (
-        <div data-slot-id={String(slotKey)}>{children}</div>
+        <div data-slot-id={String(slotKey)} className={config.className}>
+          {children}
+        </div>
       ));
   });
 
