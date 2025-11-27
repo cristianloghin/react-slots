@@ -2,6 +2,10 @@
   "name": "@mikrostack/rst",
   "version": "0.0.1",
   "description": "React Slot-Based Component System",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cristianloghin/react-slots"
+  },
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
