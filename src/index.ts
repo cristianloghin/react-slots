@@ -1,0 +1,1 @@
+export { createComponentWithSlots } from "./withSlots";
