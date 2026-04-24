@@ -1,13 +1,20 @@
-import { Children, cloneElement, isValidElement, ReactElement, ReactNode } from "react";
-
-const SLOT_KEY = Symbol("rst-slot");
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  ReactElement,
+  ReactNode,
+} from "react";
 import {
   ComponentBuilder,
   ExtractSlotComponents,
   RenderedSlots,
   Slot,
   SlotConfig,
+  ValidateSlotProps,
 } from "./types";
+
+const SLOT_KEY = Symbol("rst-slot");
 
 /**
  * Creates a component builder with a slot-based composition pattern
@@ -28,9 +35,14 @@ import {
  *   .render(({ slots }) => <div>{slots.Header}</div>);
  * ```
  */
-export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
-  slotsConfig: S
-): ComponentBuilder<S> {
+export function createComponentWithSlots<
+  S extends {
+    [K in keyof S]: S[K] extends { component: Slot<infer T>; props: infer P }
+      ? // ? Omit<SlotConfig<T>, "props"> & { props: ValidateSlotProps<T, P> }
+        Omit<SlotConfig<T>, "props"> & { props: ValidateSlotProps<T, P> }
+      : SlotConfig<any>;
+  },
+>(slotsConfig: S): ComponentBuilder<S> {
   type SlotName = keyof S;
 
   // STEP 1: Generate slot components — each gets a unique Symbol for identity matching
@@ -44,7 +56,9 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
     if (config.component) {
       const Base = config.component as any;
       wrapper = ({ children, ...userProps }: any) => (
-        <Base {...config.props} {...userProps}>{children}</Base>
+        <Base {...config.props} {...userProps}>
+          {children}
+        </Base>
       );
     } else {
       wrapper = ({ children }: { children?: ReactNode }) => (
@@ -65,8 +79,8 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
       props: T & {
         slots: RenderedSlots<S>;
         nonSlotChildren: ReactElement[];
-      }
-    ) => ReactElement
+      },
+    ) => ReactElement,
   ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S> => {
     const Component = ({
       children,
@@ -97,8 +111,10 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
         if (isValidElement(child)) {
           // Match by per-slot Symbol so two slots sharing the same component can be distinguished
           const childSlotKey = (child.type as any)[SLOT_KEY];
-          const slotEntry = (Object.entries(slotComponents) as Array<[SlotName, any]>).find(
-            ([_, slotComponent]) => slotComponent[SLOT_KEY] === childSlotKey
+          const slotEntry = (
+            Object.entries(slotComponents) as Array<[SlotName, any]>
+          ).find(
+            ([_, slotComponent]) => slotComponent[SLOT_KEY] === childSlotKey,
           );
 
           if (slotEntry) {
@@ -109,7 +125,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
             if (config.multiple) {
               // For multiple slots, assign an index-based key when the consumer omits one
               (slotElements[slotName] as ReactElement[]).push(
-                child.key != null ? child : cloneElement(child, { key: index })
+                child.key != null ? child : cloneElement(child, { key: index }),
               );
             } else {
               // For single slots, store the element (replaces previous if duplicate)
@@ -121,8 +137,8 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
               ) {
                 console.warn(
                   `Multiple children provided for slot "${String(
-                    slotName
-                  )}" but it's not configured to accept multiple children. Only the last child will be used.`
+                    slotName,
+                  )}" but it's not configured to accept multiple children. Only the last child will be used.`,
                 );
               }
               slotElements[slotName] = child;
@@ -154,7 +170,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
         process.env.NODE_ENV !== "production"
       ) {
         console.error(
-          `Required slots missing: ${missingRequiredSlots.join(", ")}`
+          `Required slots missing: ${missingRequiredSlots.join(", ")}`,
         );
       }
 
@@ -194,8 +210,8 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
         props: T & {
           slots: RenderedSlots<S>;
           nonSlotChildren: ReactElement[];
-        }
-      ) => ReactElement
+        },
+      ) => ReactElement,
     ) => createComponent<T>(renderFn),
   };
 }

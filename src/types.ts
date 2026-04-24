@@ -23,7 +23,13 @@ export interface SlotConfig<T = any> {
   props?: Partial<T>;
 }
 
-type ExtractSlotProps<C> = C extends Slot<infer P> ? P : { children?: ReactNode };
+type ExtractSlotProps<C> =
+  C extends Slot<infer P> ? P : { children?: ReactNode };
+
+// Maps each key in P to its type in T if valid, or never if unknown — used to enforce no extra props
+export type ValidateSlotProps<T, P> = {
+  [K in keyof P]: K extends keyof T ? T[K] : never;
+};
 
 /**
  * Type utility: Extracts the slot component functions from the config
@@ -79,7 +85,7 @@ export interface ComponentBuilder<S extends Record<string, SlotConfig>> {
       props: T & {
         slots: RenderedSlots<S>;
         nonSlotChildren: ReactElement[];
-      }
-    ) => ReactElement
+      },
+    ) => ReactElement,
   ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S>;
 }
