@@ -10,7 +10,7 @@ import {
   ExtractSlotComponents,
   RenderedSlots,
   Slot,
-  SlotConfig,
+  SlotDef,
 } from "./types";
 
 const SLOT_KEY = Symbol("rst-slot");
@@ -34,9 +34,9 @@ const SLOT_KEY = Symbol("rst-slot");
  *   .render(({ slots }) => <div>{slots.Header}</div>);
  * ```
  */
-export function createComponentWithSlots<
-  S extends Record<string, SlotConfig<any>>,
->(slotsConfig: S): ComponentBuilder<S> {
+export function createComponentWithSlots<S extends Record<string, SlotDef>>(
+  slotsConfig: S,
+): ComponentBuilder<S> {
   type SlotName = keyof S;
 
   // STEP 1: Generate slot components — each gets a unique Symbol for identity matching

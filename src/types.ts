@@ -33,6 +33,10 @@ export type ValidateSlotProps<T, P> = {
   [K in keyof P]: K extends keyof T ? T[K] : never;
 };
 
+// Unique brand that marks values produced by the slot() factory
+export declare const SlotBrand: unique symbol;
+export type SlotDef = SlotConfig<any> & { readonly [SlotBrand]: true };
+
 /**
  * Type utility: Extracts the slot component functions from the config
  *
