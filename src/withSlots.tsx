@@ -34,9 +34,9 @@ const SLOT_KEY = Symbol("rst-slot");
  *   .render(({ slots }) => <div>{slots.Header}</div>);
  * ```
  */
-export function createComponentWithSlots<S extends Record<string, SlotConfig<any>>>(
-  slotsConfig: S,
-): ComponentBuilder<S> {
+export function createComponentWithSlots<
+  S extends Record<string, SlotConfig<any>>,
+>(slotsConfig: S): ComponentBuilder<S> {
   type SlotName = keyof S;
 
   // STEP 1: Generate slot components — each gets a unique Symbol for identity matching
@@ -54,6 +54,9 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig<any
           {children}
         </Base>
       );
+      // Copy static properties (e.g. nested slot components) so that
+      // Parent.SlottedChild.NestedSlot resolves correctly at runtime
+      Object.assign(wrapper, Base);
     } else {
       wrapper = ({ children }: { children?: ReactNode }) => (
         <div data-slot-id={String(slotKey)} className={config.className}>
