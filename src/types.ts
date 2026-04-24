@@ -1,5 +1,6 @@
 import {
   ForwardRefExoticComponent,
+  FunctionComponent,
   MemoExoticComponent,
   PropsWithChildren,
   ReactElement,
@@ -9,6 +10,7 @@ import {
 
 // Base slot function type
 export type Slot<T, E extends HTMLElement = HTMLElement> =
+  | FunctionComponent<T>
   | ((props: T) => ReactNode)
   | ForwardRefExoticComponent<PropsWithChildren<T> & RefAttributes<E>>
   | MemoExoticComponent<(props: T) => ReactNode>;
@@ -24,7 +26,7 @@ export interface SlotConfig<T = any> {
 }
 
 type ExtractSlotProps<C> =
-  C extends Slot<infer P> ? P : { children?: ReactNode };
+  C extends Slot<infer P> ? P : { children?: ReactNode; __def: number };
 
 // Maps each key in P to its type in T if valid, or never if unknown — used to enforce no extra props
 export type ValidateSlotProps<T, P> = {
