@@ -2,7 +2,7 @@
 
 A type-safe, flexible slot-based component system for React applications. This system enables the creation of composable components with named "slots" that can be filled by children components.
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Overview](#overview)
 - [Installation](#installation)
@@ -14,8 +14,8 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Required Slots](#required-slots)
   - [Default Content](#default-content)
   - [Non-Slot Children](#non-slot-children)
-  - [Static Slot Props](#static-slot-props)
   - [Same Component for Multiple Slots](#same-component-for-multiple-slots)
+  - [Nested Slot Components](#nested-slot-components)
   - [Injecting Runtime Props](#injecting-runtime-props)
 - [TypeScript Support](#typescript-support)
 - [Best Practices](#best-practices)
@@ -59,15 +59,15 @@ yarn add @mikrostack/rst
 
 ## Key Features
 
-- 🔒 **Type-Safe**: Full TypeScript support with proper type inference, including per-slot element types
-- 🧩 **Composable**: Clean, intuitive component composition
-- 🔄 **Multiple Slot Instances**: Support for multiple children of the same slot type, with automatic key assignment
-- ⚠️ **Validation**: Required slot validation
-- 🔍 **Default Content**: Support for default slot content
-- 📦 **Non-Slot Children Handling**: Collect and handle non-matching children
-- 🛠️ **Flexible Rendering**: Full control over slot positioning and layout
-- 🎛️ **Static Slot Props**: Declare fixed props at registration time — useful for sharing one component across two slots
-- 💉 **`injectSlotProps`**: Typed helper for passing render-function state into a slot without modifying the slots API
+- **Type-Safe**: Full TypeScript support with proper type inference, including per-slot element types
+- **Composable**: Clean, intuitive component composition
+- **Multiple Slot Instances**: Support for multiple children of the same slot type, with automatic key assignment
+- **Validation**: Required slot validation
+- **Default Content**: Support for default slot content
+- **Non-Slot Children Handling**: Collect and handle non-matching children
+- **Flexible Rendering**: Full control over slot positioning and layout
+- **Same Component for Multiple Slots**: Two slots can share the same underlying component — RST uses per-slot Symbols for identity, not component reference
+- **`injectSlotProps`**: Typed helper for passing render-function state into a slot without modifying the slots API
 
 ## API Reference
 
@@ -100,7 +100,7 @@ render<T extends object = {}>(
 - `isRequired`: If true, the slot must be provided
 - `multiple`: If true, multiple instances of the slot are collected in an array. Children without a `key` receive one automatically based on their index.
 - `defaultContent`: Default content to use if the slot is not provided
-- `props`: Fixed props merged into the slot component at render time. These act as defaults and can be overridden by the consumer. Useful for sharing one component across two slots with different base props (see [Same Component for Multiple Slots](#same-component-for-multiple-slots)).
+- `className`: Optional class name applied to the default wrapper `<div>` (ignored when `component` is provided)
 
 **`render`**: Function that renders the component using the organized slots
 
@@ -127,6 +127,8 @@ import { injectSlotProps } from "@mikrostack/rst";
 // Instead of: {slots.Dialog}
 {injectSlotProps(slots.Dialog, { onClose: () => setOpen(false) })}
 ```
+
+`injectSlotProps` is the only mechanism for passing runtime props to a slot. The `props` argument is typed against the slot component's own prop type, so mismatched props are caught at compile time.
 
 ## Usage Examples
 
@@ -208,13 +210,15 @@ const Card = createComponentWithSlots({
 
 ### Multiple Slot Instances
 
+Children of a `multiple` slot that have no `key` prop automatically receive an index-based key, so you don't need to set keys manually.
+
 ```tsx
 const Tabs = createComponentWithSlots({
-  Tab: { multiple: true }  // Collects multiple instances in an array
+  Tab: { multiple: true }
 }).render<{ activeTab?: number }>(({ slots, activeTab = 0 }) => (
   <div className="tabs-container">
     <div className="tabs-header">
-      {slots.Tab && Array.isArray(slots.Tab) && slots.Tab.map((tab, index) => (
+      {slots.Tab.map((tab, index) => (
         <div key={index} className={`tab ${activeTab === index ? 'active' : ''}`}>
           {tab}
         </div>
@@ -235,17 +239,16 @@ const Tabs = createComponentWithSlots({
 
 ```tsx
 const Form = createComponentWithSlots({
-  Fields: { isRequired: true }  // Validates this slot must be provided
+  Fields: { isRequired: true }
 }).render(({ slots }) => (
   <form>
     {slots.Fields}
   </form>
 ));
 
-// TypeScript will enforce that the Fields slot must be provided
+// Missing Form.Fields causes a console error in development
 <Form>
   <Form.Fields>...</Form.Fields>
-  {/* Missing Form.Fields would cause a console error in development */}
 </Form>
 ```
 
@@ -264,10 +267,9 @@ const Panel = createComponentWithSlots({
   </div>
 ));
 
-// Footer will show default content if not provided
+// Footer shows default content when not provided
 <Panel>
   <Panel.Body>Main content</Panel.Body>
-  {/* Footer will use default content */}
 </Panel>
 ```
 
@@ -284,7 +286,6 @@ const Layout = createComponentWithSlots({
     <div className="content">
       {slots.Sidebar}
       <main>
-        {/* Render any children that don't match a slot */}
         {nonSlotChildren}
       </main>
     </div>
@@ -296,16 +297,15 @@ const Layout = createComponentWithSlots({
 <Layout>
   <Layout.Header>Site Header</Layout.Header>
   <Layout.Sidebar>Navigation</Layout.Sidebar>
-  {/* These divs will be collected in nonSlotChildren */}
   <div>Main content section 1</div>
   <div>Main content section 2</div>
   <Layout.Footer>Site Footer</Layout.Footer>
 </Layout>
 ```
 
-### Static Slot Props
+### Same Component for Multiple Slots
 
-Use `props` to inject fixed props at registration time instead of calling `cloneElement` in the render function:
+Two slots can share the same underlying component. RST identifies slots by a per-slot Symbol assigned at registration time — not by component reference — so there is no ambiguity. Use `injectSlotProps` in the render function to pass slot-specific props at render time:
 
 ```tsx
 function SidebarSlot({ side, children }: { side: "left" | "right"; children?: ReactNode }) {
@@ -313,39 +313,14 @@ function SidebarSlot({ side, children }: { side: "left" | "right"; children?: Re
 }
 
 const Layout = createComponentWithSlots({
-  LeftSidebar:  { component: SidebarSlot, props: { side: "left" } },
-  RightSidebar: { component: SidebarSlot, props: { side: "right" } },
+  LeftSidebar:  { component: SidebarSlot },
+  RightSidebar: { component: SidebarSlot },
   Body: {},
 }).render(({ slots }) => (
   <div className="layout">
-    {slots.LeftSidebar}
+    {injectSlotProps(slots.LeftSidebar,  { side: "left"  })}
     {slots.Body}
-    {slots.RightSidebar}
-  </div>
-));
-
-// Usage — consumers don't need to pass `side` themselves
-<Layout>
-  <Layout.LeftSidebar>Navigation</Layout.LeftSidebar>
-  <Layout.Body>Main content</Layout.Body>
-  <Layout.RightSidebar>Panel</Layout.RightSidebar>
-</Layout>
-```
-
-### Same Component for Multiple Slots
-
-Two slots can share the same underlying component. RST identifies slots by a per-slot Symbol assigned at registration time, not by component reference, so there is no ambiguity:
-
-```tsx
-const Layout = createComponentWithSlots({
-  LeftSidebar:  { component: SidebarSlot, props: { side: "left" } },
-  RightSidebar: { component: SidebarSlot, props: { side: "right" } },
-  Body: {},
-}).render(({ slots }) => (
-  <div className="layout">
-    {slots.LeftSidebar}
-    {slots.Body}
-    {slots.RightSidebar}
+    {injectSlotProps(slots.RightSidebar, { side: "right" })}
   </div>
 ));
 
@@ -354,6 +329,43 @@ const Layout = createComponentWithSlots({
   <Layout.LeftSidebar>Nav</Layout.LeftSidebar>
   <Layout.RightSidebar>Aside</Layout.RightSidebar>
 </Layout>
+```
+
+### Nested Slot Components
+
+A slot whose `component` is itself a slotted component automatically exposes the inner component's slots as static properties, so consumers can address them with a chained path:
+
+```tsx
+const Header = createComponentWithSlots({
+  Title: {},
+  Actions: { multiple: true },
+}).render(({ slots }) => (
+  <header>
+    {slots.Title}
+    <div className="actions">{slots.Actions}</div>
+  </header>
+));
+
+const Page = createComponentWithSlots({
+  Header: { component: Header },
+  Body: {},
+}).render(({ slots }) => (
+  <div>
+    {slots.Header}
+    {slots.Body}
+  </div>
+));
+
+// Usage — chained slot access
+<Page>
+  <Page.Header>
+    <Page.Header.Title>My Page</Page.Header.Title>
+    <Page.Header.Actions>
+      <button>Save</button>
+    </Page.Header.Actions>
+  </Page.Header>
+  <Page.Body>Content</Page.Body>
+</Page>
 ```
 
 ### Injecting Runtime Props
@@ -443,6 +455,7 @@ const Modal = createComponentWithSlots({
 4. **Consider required slots**: Mark slots as required when they're essential for functionality
 5. **Provide sensible defaults**: Use default content for optional slots with common patterns
 6. **Handle non-slot children appropriately**: Have a plan for how to deal with non-slot children
+7. **Use `injectSlotProps` for runtime props**: This is the only mechanism for passing render-time data into a slot; keep slot components focused on structure, not state
 
 ## Real-World Applications
 

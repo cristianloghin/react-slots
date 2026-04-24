@@ -10,7 +10,7 @@ import {
   ExtractSlotComponents,
   RenderedSlots,
   Slot,
-  SlotDef,
+  SlotConfig,
 } from "./types";
 
 const SLOT_KEY = Symbol("rst-slot");
@@ -34,7 +34,7 @@ const SLOT_KEY = Symbol("rst-slot");
  *   .render(({ slots }) => <div>{slots.Header}</div>);
  * ```
  */
-export function createComponentWithSlots<S extends Record<string, SlotDef>>(
+export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
   slotsConfig: S,
 ): ComponentBuilder<S> {
   type SlotName = keyof S;
@@ -50,7 +50,7 @@ export function createComponentWithSlots<S extends Record<string, SlotDef>>(
     if (config.component) {
       const Base = config.component as any;
       wrapper = ({ children, ...userProps }: any) => (
-        <Base {...config.props} {...userProps}>
+        <Base {...userProps}>
           {children}
         </Base>
       );
