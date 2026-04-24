@@ -1,4 +1,6 @@
-import { Children, isValidElement, ReactElement, ReactNode } from "react";
+import { Children, cloneElement, isValidElement, ReactElement, ReactNode } from "react";
+
+const SLOT_KEY = Symbol("rst-slot");
 import {
   ComponentBuilder,
   ExtractSlotComponents,
@@ -31,19 +33,29 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
 ): ComponentBuilder<S> {
   type SlotName = keyof S;
 
-  // STEP 1: Generate slot components with defaults
-  // For each slot in the config, either use the provided component or create a default wrapper
+  // STEP 1: Generate slot components — each gets a unique Symbol for identity matching
+  // and a wrapper that merges static config.props before user props
   const slotComponents = {} as Record<SlotName, Slot<any>>;
   (Object.keys(slotsConfig) as Array<SlotName>).forEach((slotKey) => {
     const config = slotsConfig[slotKey];
-    slotComponents[slotKey] =
-      config.component ||
-      // Default component: simple wrapper with data-slot-id attribute
-      (({ children }: { children?: ReactNode }) => (
+    const slotSymbol = Symbol(String(slotKey));
+
+    let wrapper: Slot<any>;
+    if (config.component) {
+      const Base = config.component as any;
+      wrapper = ({ children, ...userProps }: any) => (
+        <Base {...config.props} {...userProps}>{children}</Base>
+      );
+    } else {
+      wrapper = ({ children }: { children?: ReactNode }) => (
         <div data-slot-id={String(slotKey)} className={config.className}>
           {children}
         </div>
-      ));
+      );
+    }
+
+    (wrapper as any)[SLOT_KEY] = slotSymbol;
+    slotComponents[slotKey] = wrapper;
   });
 
   // STEP 2: Create the component factory function
@@ -81,22 +93,24 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
       });
 
       // STEP 2.2: Process all children and organize them into slots
-      Children.forEach(children, (child) => {
+      Children.forEach(children, (child, index) => {
         if (isValidElement(child)) {
-          // Check if this child matches any slot component
-          // We compare child.type (the component function) to our slot components
-          const slotEntry = Object.entries(slotComponents).find(
-            ([_, slotComponent]) => slotComponent === child.type
+          // Match by per-slot Symbol so two slots sharing the same component can be distinguished
+          const childSlotKey = (child.type as any)[SLOT_KEY];
+          const slotEntry = (Object.entries(slotComponents) as Array<[SlotName, any]>).find(
+            ([_, slotComponent]) => slotComponent[SLOT_KEY] === childSlotKey
           );
 
           if (slotEntry) {
             // This child is a slot! Extract its name and config
-            const [slotName] = slotEntry as [SlotName, any];
+            const [slotName] = slotEntry;
             const config = slotsConfig[slotName];
 
             if (config.multiple) {
-              // For multiple slots, add to the array
-              (slotElements[slotName] as ReactElement[]).push(child);
+              // For multiple slots, assign an index-based key when the consumer omits one
+              (slotElements[slotName] as ReactElement[]).push(
+                child.key != null ? child : cloneElement(child, { key: index })
+              );
             } else {
               // For single slots, store the element (replaces previous if duplicate)
               // Warn in development if we're overriding a previous value

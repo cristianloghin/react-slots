@@ -20,7 +20,10 @@ export interface SlotConfig<T = any> {
   multiple?: boolean;
   defaultContent?: ReactNode;
   className?: string;
+  props?: Partial<T>;
 }
+
+type ExtractSlotProps<C> = C extends Slot<infer P> ? P : { children?: ReactNode };
 
 /**
  * Type utility: Extracts the slot component functions from the config
@@ -42,15 +45,15 @@ export type ExtractSlotComponents<S extends Record<string, SlotConfig>> = {
  * Type utility: Determines the type of rendered slot content based on config
  *
  * For each slot:
- * - If `multiple: true`, the slot is an array: ReactElement[]
- * - Otherwise, the slot is a single element or null: ReactElement | null
+ * - If `multiple: true`, the slot is an array typed to the component's props
+ * - Otherwise, the slot is a single element typed to the component's props, or null
  *
  * This is used for the `slots` object passed to the render function
  */
 export type RenderedSlots<S extends Record<string, SlotConfig>> = {
   [K in keyof S]: S[K] extends { multiple: true }
-    ? ReactElement[]
-    : ReactElement | null;
+    ? ReactElement<ExtractSlotProps<S[K]["component"]>>[]
+    : ReactElement<ExtractSlotProps<S[K]["component"]>> | null;
 };
 
 /**
