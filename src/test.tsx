@@ -1,4 +1,5 @@
 import { PropsWithChildren, ReactNode } from "react";
+import { injectSlotProps } from "./injectSlotProps";
 import { slot } from "./slot";
 import { createComponentWithSlots } from "./withSlots";
 
@@ -18,13 +19,18 @@ const HeaderSlot = (props: PropsWithChildren<{ bar: string }>) => (
 
 const ComplexSlot = createComponentWithSlots({
   Header: slot({ component: HeaderSlot }),
-}).render(({ slots }) => <div>{slots.Header}</div>);
+}).render<{ __monkey?: number }>(({ slots }) => <div>{slots.Header}</div>);
 
 const TestComp = createComponentWithSlots({
   Basic: slot(),
   Simple: slot({ component: SimpleSlot, props: { foo: 45 } }),
   Complex: slot({ component: ComplexSlot }),
-}).render(({ slots }) => <div>{slots.Simple}</div>);
+}).render(({ slots }) => (
+  <div>
+    {slots.Simple}
+    {injectSlotProps(slots.Complex, { __monkey: 67 })}
+  </div>
+));
 
 const Test = () => {
   return (
