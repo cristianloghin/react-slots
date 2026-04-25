@@ -39,8 +39,8 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
 ): ComponentBuilder<S> {
   type SlotName = keyof S;
 
-  // STEP 1: Generate slot components — each gets a unique Symbol for identity matching
-  // and a wrapper that merges static config.props before user props
+  // Each slot gets a unique per-instance Symbol so two slots sharing the same
+  // component type can still be distinguished during child collection.
   const slotComponents = {} as Record<SlotName, Slot<any>>;
   (Object.keys(slotsConfig) as Array<SlotName>).forEach((slotKey) => {
     const config = slotsConfig[slotKey];
@@ -49,15 +49,15 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
     let wrapper: Slot<any>;
     if (config.component) {
       const Base = config.component as any;
-      // asChild is consumed at collection time by the parent — strip it here
-      // so it doesn't leak through to the underlying component.
+      // Strip asChild before forwarding — it is consumed during child collection
+      // and must not leak through to the underlying component.
       wrapper = ({ children, asChild: _, ...userProps }: any) => (
         <Base {...userProps}>
           {children}
         </Base>
       );
       // Copy static properties (e.g. nested slot components) so that
-      // Parent.SlottedChild.NestedSlot resolves correctly at runtime
+      // Parent.SlottedChild.NestedSlot resolves correctly at runtime.
       Object.assign(wrapper, Base);
     } else {
       wrapper = ({ children, asChild: _ }: { children?: ReactNode; asChild?: boolean }) => (
@@ -71,153 +71,6 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
     slotComponents[slotKey] = wrapper;
   });
 
-  // STEP 2: Create the component factory function
-  // This is the core logic that will be used by both withProps and render
-  const createComponent = <T extends object>(
-    renderFn: (
-      props: T & {
-        slots: RenderedSlots<S>;
-        nonSlotChildren: ReactElement[];
-      },
-    ) => ReactElement,
-  ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S> => {
-    const Component = ({
-      children,
-      ...props
-    }: T & { children?: ReactNode }) => {
-      // Storage for organized slot elements
-      const slotElements = {} as {
-        [K in SlotName]: ReactElement[] | ReactElement | null;
-      };
-      const nonSlotChildren: ReactElement[] = [];
-
-      // STEP 2.1: Initialize all slots with empty values or default content
-      (Object.keys(slotsConfig) as Array<SlotName>).forEach((slotKey) => {
-        const config = slotsConfig[slotKey];
-        if (config.multiple) {
-          // Multiple slots start as empty array
-          slotElements[slotKey] = [];
-        } else {
-          // Single slots start as null or default content
-          slotElements[slotKey] = config.defaultContent ? (
-            <>{config.defaultContent}</>
-          ) : null;
-        }
-      });
-
-      // STEP 2.2: Process all children and organize them into slots
-      Children.forEach(children, (child, index) => {
-        if (isValidElement(child)) {
-          // Match by per-slot Symbol so two slots sharing the same component can be distinguished
-          const childSlotKey = (child.type as any)[SLOT_KEY];
-          const slotEntry = (
-            Object.entries(slotComponents) as Array<[SlotName, any]>
-          ).find(
-            ([_, slotComponent]) => slotComponent[SLOT_KEY] === childSlotKey,
-          );
-
-          if (slotEntry) {
-            // This child is a slot! Extract its name and config
-            const [slotName] = slotEntry;
-            const config = slotsConfig[slotName];
-
-            // asChild: dissolve the slot wrapper and use its single child directly
-            let effectiveChild: ReactElement = child;
-            if ((child.props as any).asChild) {
-              const innerChild = (child.props as any).children;
-              if (!isValidElement(innerChild)) {
-                if (process.env.NODE_ENV !== "production") {
-                  console.error(
-                    `[rst] Slot "${String(slotName)}" with asChild={true} must receive exactly one React element as its child.`,
-                  );
-                }
-                return;
-              }
-              effectiveChild = innerChild as ReactElement;
-            }
-
-            if (config.multiple) {
-              // For multiple slots, assign an index-based key when the consumer omits one
-              (slotElements[slotName] as ReactElement[]).push(
-                effectiveChild.key != null ? effectiveChild : cloneElement(effectiveChild, { key: index }),
-              );
-            } else {
-              // For single slots, store the element (replaces previous if duplicate)
-              // Warn in development if we're overriding a previous value
-              if (
-                process.env.NODE_ENV !== "production" &&
-                slotElements[slotName] !== null &&
-                !config.defaultContent
-              ) {
-                console.warn(
-                  `Multiple children provided for slot "${String(
-                    slotName,
-                  )}" but it's not configured to accept multiple children. Only the last child will be used.`,
-                );
-              }
-              slotElements[slotName] = effectiveChild;
-            }
-          } else {
-            // This child doesn't match any slot, collect it as non-slot content
-            nonSlotChildren.push(child);
-          }
-        }
-      });
-
-      // STEP 2.3: Validate required slots (only in development)
-      const missingRequiredSlots = (Object.keys(slotsConfig) as Array<SlotName>)
-        .filter((key) => {
-          const config = slotsConfig[key];
-          if (!config.isRequired) return false;
-
-          const slotContent = slotElements[key];
-          // Check if slot is empty
-          if (config.multiple) {
-            return (slotContent as ReactElement[]).length === 0;
-          }
-          return slotContent === null;
-        })
-        .map((key) => String(key));
-
-      if (
-        missingRequiredSlots.length > 0 &&
-        process.env.NODE_ENV !== "production"
-      ) {
-        console.error(
-          `Required slots missing: ${missingRequiredSlots.join(", ")}`,
-        );
-      }
-
-      // STEP 2.4: Prepare properly typed slots object for render function
-      const typeSafeSlots = {} as RenderedSlots<S>;
-
-      // Copy all slot elements into the type-safe object
-      (Object.keys(slotsConfig) as Array<SlotName>).forEach((key) => {
-        typeSafeSlots[key] = slotElements[key] as any;
-      });
-
-      // STEP 2.5: Call the user's render function with organized data
-      const renderProps = {
-        ...props,
-        slots: typeSafeSlots,
-        nonSlotChildren,
-      };
-
-      return <>{renderFn(renderProps as any)}</>;
-    };
-
-    // STEP 3: Attach slot components as static properties
-    // This allows usage like: <Card.Header>...</Card.Header>
-    Object.entries(slotComponents).forEach(([key, slot]) => {
-      (Component as any)[key] = slot;
-    });
-
-    // STEP 4: Return the component with proper typing
-    return Component as unknown as React.FC<T & { children?: ReactNode }> &
-      ExtractSlotComponents<S>;
-  };
-
-  // STEP 5: Return the builder object with render method
   return {
     render: <T extends object = {}>(
       renderFn: (
@@ -226,6 +79,118 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
           nonSlotChildren: ReactElement[];
         },
       ) => ReactElement,
-    ) => createComponent<T>(renderFn),
+    ) => {
+      const Component = ({
+        children,
+        ...props
+      }: T & { children?: ReactNode }) => {
+        const slotElements = {} as {
+          [K in SlotName]: ReactElement[] | ReactElement | null;
+        };
+        const nonSlotChildren: ReactElement[] = [];
+
+        (Object.keys(slotsConfig) as Array<SlotName>).forEach((slotKey) => {
+          const config = slotsConfig[slotKey];
+          if (config.multiple) {
+            slotElements[slotKey] = [];
+          } else {
+            slotElements[slotKey] = config.defaultContent ? (
+              <>{config.defaultContent}</>
+            ) : null;
+          }
+        });
+
+        Children.forEach(children, (child, index) => {
+          if (isValidElement(child)) {
+            // Match by per-slot Symbol so two slots sharing the same component
+            // can still be distinguished.
+            const childSlotKey = (child.type as any)[SLOT_KEY];
+            const slotEntry = (
+              Object.entries(slotComponents) as Array<[SlotName, any]>
+            ).find(
+              ([_, slotComponent]) => slotComponent[SLOT_KEY] === childSlotKey,
+            );
+
+            if (slotEntry) {
+              const [slotName] = slotEntry;
+              const config = slotsConfig[slotName];
+
+              // asChild: dissolve the slot wrapper and use its child directly.
+              let effectiveChild: ReactElement = child;
+              if ((child.props as any).asChild) {
+                const innerChild = (child.props as any).children;
+                if (!isValidElement(innerChild)) {
+                  if (process.env.NODE_ENV !== "production") {
+                    console.error(
+                      `[rst] Slot "${String(slotName)}" with asChild={true} must receive exactly one React element as its child.`,
+                    );
+                  }
+                  return;
+                }
+                effectiveChild = innerChild as ReactElement;
+              }
+
+              if (config.multiple) {
+                // Assign an index-based key when the consumer omits one to
+                // avoid React's missing-key warning.
+                (slotElements[slotName] as ReactElement[]).push(
+                  effectiveChild.key != null ? effectiveChild : cloneElement(effectiveChild, { key: index }),
+                );
+              } else {
+                if (
+                  process.env.NODE_ENV !== "production" &&
+                  slotElements[slotName] !== null &&
+                  !config.defaultContent
+                ) {
+                  console.warn(
+                    `Multiple children provided for slot "${String(
+                      slotName,
+                    )}" but it's not configured to accept multiple children. Only the last child will be used.`,
+                  );
+                }
+                slotElements[slotName] = effectiveChild;
+              }
+            } else {
+              nonSlotChildren.push(child);
+            }
+          }
+        });
+
+        const missingRequiredSlots = (Object.keys(slotsConfig) as Array<SlotName>)
+          .filter((key) => {
+            const config = slotsConfig[key];
+            if (!config.isRequired) return false;
+            const slotContent = slotElements[key];
+            if (config.multiple) {
+              return (slotContent as ReactElement[]).length === 0;
+            }
+            return slotContent === null;
+          })
+          .map((key) => String(key));
+
+        if (
+          missingRequiredSlots.length > 0 &&
+          process.env.NODE_ENV !== "production"
+        ) {
+          console.error(
+            `Required slots missing: ${missingRequiredSlots.join(", ")}`,
+          );
+        }
+
+        const typeSafeSlots = {} as RenderedSlots<S>;
+        (Object.keys(slotsConfig) as Array<SlotName>).forEach((key) => {
+          typeSafeSlots[key] = slotElements[key] as any;
+        });
+
+        return <>{renderFn({ ...props, slots: typeSafeSlots, nonSlotChildren } as any)}</>;
+      };
+
+      Object.entries(slotComponents).forEach(([key, slot]) => {
+        (Component as any)[key] = slot;
+      });
+
+      return Component as unknown as React.FC<T & { children?: ReactNode }> &
+        ExtractSlotComponents<S>;
+    },
   };
 }
