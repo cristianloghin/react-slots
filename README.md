@@ -274,29 +274,39 @@ const Card = createComponentWithSlots({
 
 ### Multiple Slot Instances
 
-Children of a `multiple` slot that have no `key` prop automatically receive an index-based key, so you don't need to set keys manually.
+Children of a `multiple` slot that have no `key` prop automatically receive an index-based key. Rendering the collected array directly causes no React key warnings.
 
 ```tsx
-const Tabs = createComponentWithSlots({
-  Tab: { multiple: true }
-}).render<{ activeTab?: number }>(({ slots, activeTab = 0 }) => (
-  <div className="tabs-container">
-    <div className="tabs-header">
-      {slots.Tab.map((tab, index) => (
-        <div key={index} className={`tab ${activeTab === index ? 'active' : ''}`}>
-          {tab}
-        </div>
-      ))}
-    </div>
+const TagList = createComponentWithSlots({
+  Tag: { multiple: true },
+}).render(({ slots }) => (
+  <div className="tags">
+    {slots.Tag}
   </div>
 ));
 
-// Usage
-<Tabs activeTab={1}>
-  <Tabs.Tab>Tab 1</Tabs.Tab>
-  <Tabs.Tab>Tab 2</Tabs.Tab>
-  <Tabs.Tab>Tab 3</Tabs.Tab>
-</Tabs>
+// No key props needed on the children
+<TagList>
+  <TagList.Tag>React</TagList.Tag>
+  <TagList.Tag>TypeScript</TagList.Tag>
+  <TagList.Tag>RST</TagList.Tag>
+</TagList>
+```
+
+If you wrap each collected element in a container inside the render function, those wrapper elements need their own keys as usual:
+
+```tsx
+const Tabs = createComponentWithSlots({
+  Tab: { multiple: true },
+}).render<{ activeTab?: number }>(({ slots, activeTab = 0 }) => (
+  <div className="tabs">
+    {slots.Tab.map((tab, index) => (
+      <div key={index} className={activeTab === index ? "tab tab--active" : "tab"}>
+        {tab}
+      </div>
+    ))}
+  </div>
+));
 ```
 
 ### Required Slots
