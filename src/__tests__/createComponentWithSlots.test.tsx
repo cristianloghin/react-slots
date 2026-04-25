@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createComponentWithSlots } from "../withSlots";
 
 const Card = createComponentWithSlots({
@@ -56,6 +56,15 @@ describe("createComponentWithSlots", () => {
       </Card>
     );
     expect(screen.getByTestId("header")).toBeEmptyDOMElement();
+  });
+
+  it("logs an error when a required slot is not filled", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<Card>{/* no Body */}</Card>);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Required slots missing")
+    );
+    errorSpy.mockRestore();
   });
 
   it("collects non-slot children separately", () => {

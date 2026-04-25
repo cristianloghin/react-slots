@@ -102,6 +102,34 @@ describe("asChild", () => {
     expect(screen.getByTestId("tags-slot")).toHaveTextContent("remoteinline");
   });
 
+  it("bypasses the slot component when the slot has a component config", () => {
+    const TitleComponent = ({ children }: { children?: React.ReactNode }) => (
+      <div data-testid="title-component">{children}</div>
+    );
+    const ComponentSlot = createComponentWithSlots({
+      Title: { component: TitleComponent },
+    }).render(({ slots }) => (
+      <div>
+        <div data-testid="title-slot">{slots.Title}</div>
+      </div>
+    ));
+
+    const Remote = () => <div data-testid="remote">remote content</div>;
+
+    render(
+      <ComponentSlot>
+        <ComponentSlot.Title asChild>
+          <Remote />
+        </ComponentSlot.Title>
+      </ComponentSlot>
+    );
+
+    // Remote renders directly — TitleComponent is bypassed
+    expect(screen.getByTestId("remote")).toBeInTheDocument();
+    expect(screen.queryByTestId("title-component")).not.toBeInTheDocument();
+    expect(screen.getByTestId("title-slot")).toContainElement(screen.getByTestId("remote"));
+  });
+
   it("logs an error when asChild child is not a valid React element", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     render(
