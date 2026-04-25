@@ -52,6 +52,141 @@ section {
   font-size: 12px;
 }
 
+/* PageTitle */
+
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-title__icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.page-title__heading {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.remote-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.remote-title__icon {
+  color: #f59e0b;
+}
+
+.remote-title__text {
+  cursor: pointer;
+}
+
+.remote-title__hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: #aaa;
+}
+
+.remote-title__input {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1.5px solid #6366f1;
+  border-radius: 4px;
+  padding: 1px 6px;
+  outline: none;
+}
+
+/* PageHeader */
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.page-header__title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.page-header__form {
+  flex: 0 0 auto;
+}
+
+.remote-page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.remote-search,
+.search-input {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1.5px solid #d0d0d0;
+  border-radius: 5px;
+  outline: none;
+}
+
+.remote-search:focus,
+.search-input:focus {
+  border-color: #6366f1;
+}
+
+/* Page (asChild demo) */
+
+.page {
+  border: 1.5px solid #d0d0d0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.page__header {
+  background: #f0f0f0;
+  border-bottom: 1.5px solid #d0d0d0;
+  padding: 12px 16px;
+}
+
+.page__body {
+  padding: 16px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #333;
+}
+
+.remote-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.remote-header__title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.remote-header__btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1.5px solid #d0d0d0;
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.remote-header__btn:hover {
+  background: #f5f5f5;
+}
+
 /* Layout */
 
 .layout {

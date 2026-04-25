@@ -32,10 +32,19 @@ export interface SlotConfig<T = any> {
  * This is used for the return type to attach slot components as static properties
  * Example: Card.Header, Card.Body, etc.
  */
+// Extracts the props type from a callable component type.
+type ComponentPropsOf<C> = C extends (props: infer P) => any
+  ? P
+  : { children?: ReactNode };
+
+// Strips the call signature from a type, leaving only static properties (e.g. Title, Form).
+type StaticPropsOf<C> = Omit<C, keyof ((...args: any[]) => any)>;
+
 export type ExtractSlotComponents<S extends Record<string, SlotConfig>> = {
   [K in keyof S]: S[K]["component"] extends Slot<any>
-    ? S[K]["component"]
-    : Slot<{ children?: ReactNode }>;
+    ? ((props: ComponentPropsOf<S[K]["component"]> & { asChild?: boolean }) => ReactNode) &
+        StaticPropsOf<S[K]["component"]>
+    : (props: { children?: ReactNode; asChild?: boolean }) => ReactNode;
 };
 
 /**

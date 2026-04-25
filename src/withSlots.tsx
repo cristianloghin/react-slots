@@ -49,7 +49,9 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
     let wrapper: Slot<any>;
     if (config.component) {
       const Base = config.component as any;
-      wrapper = ({ children, ...userProps }: any) => (
+      // asChild is consumed at collection time by the parent — strip it here
+      // so it doesn't leak through to the underlying component.
+      wrapper = ({ children, asChild: _, ...userProps }: any) => (
         <Base {...userProps}>
           {children}
         </Base>
@@ -58,7 +60,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
       // Parent.SlottedChild.NestedSlot resolves correctly at runtime
       Object.assign(wrapper, Base);
     } else {
-      wrapper = ({ children }: { children?: ReactNode }) => (
+      wrapper = ({ children, asChild: _ }: { children?: ReactNode; asChild?: boolean }) => (
         <div data-slot-id={String(slotKey)} className={config.className}>
           {children}
         </div>
@@ -119,10 +121,25 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
             const [slotName] = slotEntry;
             const config = slotsConfig[slotName];
 
+            // asChild: dissolve the slot wrapper and use its single child directly
+            let effectiveChild: ReactElement = child;
+            if ((child.props as any).asChild) {
+              const innerChild = (child.props as any).children;
+              if (!isValidElement(innerChild)) {
+                if (process.env.NODE_ENV !== "production") {
+                  console.error(
+                    `[rst] Slot "${String(slotName)}" with asChild={true} must receive exactly one React element as its child.`,
+                  );
+                }
+                return;
+              }
+              effectiveChild = innerChild as ReactElement;
+            }
+
             if (config.multiple) {
               // For multiple slots, assign an index-based key when the consumer omits one
               (slotElements[slotName] as ReactElement[]).push(
-                child.key != null ? child : cloneElement(child, { key: index }),
+                effectiveChild.key != null ? effectiveChild : cloneElement(effectiveChild, { key: index }),
               );
             } else {
               // For single slots, store the element (replaces previous if duplicate)
@@ -138,7 +155,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
                   )}" but it's not configured to accept multiple children. Only the last child will be used.`,
                 );
               }
-              slotElements[slotName] = child;
+              slotElements[slotName] = effectiveChild;
             }
           } else {
             // This child doesn't match any slot, collect it as non-slot content

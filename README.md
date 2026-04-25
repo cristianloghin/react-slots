@@ -18,6 +18,7 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Nested Slot Components](#nested-slot-components)
   - [Injecting Runtime Props](#injecting-runtime-props)
   - [Static Prop Binding with `withProps`](#static-prop-binding-with-withprops)
+  - [Remote Slot Ownership with `asChild`](#remote-slot-ownership-with-aschild)
 - [TypeScript Support](#typescript-support)
 - [Best Practices](#best-practices)
 - [Real-World Applications](#real-world-applications)
@@ -69,6 +70,7 @@ yarn add @mikrostack/rst
 - **Flexible Rendering**: Full control over slot positioning and layout
 - **Same Component for Multiple Slots**: Two slots can share the same underlying component — RST uses per-slot Symbols for identity, not component reference
 - **`withProps`**: Bind static props to a component at definition time, removing them from the public slot surface
+- **`asChild`**: Prop on any slot component that lets a remote component (with its own state and queries) fill the slot without co-location
 - **`injectSlotProps`**: Typed helper for passing render-function state into a slot without modifying the slots API
 
 ## API Reference
@@ -386,6 +388,118 @@ const Page = createComponentWithSlots({
   <Page.Body>Content</Page.Body>
 </Page>
 ```
+
+### Remote Slot Ownership with `asChild`
+
+A slot's content often needs to live in a separate file — it has its own queries, mutations, and local state that don't belong at the callsite. `asChild` lets a remote component fill a slot without the parent knowing anything about it, and without the remote component knowing which layout it is used in.
+
+```tsx
+// Layout definition
+const PageLayout = createComponentWithSlots({
+  Header: { isRequired: true },
+  Body: {},
+}).render(({ slots }) => (
+  <div>
+    <div className="header">{slots.Header}</div>
+    <div className="body">{slots.Body}</div>
+  </div>
+));
+
+// Remote component — owns its own state, unaware of PageLayout
+function RouterHeader({ routerId }: { routerId: number }) {
+  const { data } = useRouterData(routerId); // its own query
+  const [open, setOpen] = useState(false);  // its own state
+  return (
+    <div>
+      <h1>{data?.name}</h1>
+      <button onClick={() => setOpen(true)}>Options</button>
+    </div>
+  );
+}
+
+// Usage — slot identity is explicit at the callsite; RouterHeader has no coupling to PageLayout
+<PageLayout>
+  <PageLayout.Header asChild>
+    <RouterHeader routerId={42} />
+  </PageLayout.Header>
+  <PageLayout.Body>Content</PageLayout.Body>
+</PageLayout>
+```
+
+**Semantics:**
+- `asChild` is only valid on slot components — not on the parent layout itself
+- The child must be a single React element; a non-element child logs an error in development
+- The slot wrapper dissolves at collection time — `RouterHeader` renders directly in the slot position
+- All other slot config (`isRequired`, `multiple`, `defaultContent`) applies to the slot position as normal; `asChild` only affects how the content is collected
+- Works with `multiple` slots — each `asChild` wrapper is treated as one instance
+
+**Nested slotted components:**
+
+`asChild` bypasses exactly one level — the slot component whose `asChild` prop is set. If that slot's `component` is itself a slotted component, the remote component must still respect its slot contract.
+
+```tsx
+// PageTitle is a slotted component used as PageHeader's Title slot component
+const PageTitle = createComponentWithSlots({
+  Icon: {},
+  Heading: { isRequired: true },
+}).render(({ slots }) => (
+  <header>
+    {slots.Icon}
+    {slots.Heading}
+  </header>
+));
+
+const PageHeader = createComponentWithSlots({
+  Title: { component: PageTitle, isRequired: true },
+  Form: {},
+}).render(/* ... */);
+
+const Page = createComponentWithSlots({
+  Header: { component: PageHeader },
+  Body: {},
+}).render(/* ... */);
+
+// ✓ asChild on Page.Header — PageHeader is bypassed.
+// RemoteHeader controls the layout, but must still satisfy PageTitle's contract
+// when using Page.Header.Title inside it.
+function RemoteHeader() {
+  return (
+    <div>
+      <Page.Header.Title>
+        <Page.Header.Title.Heading>Dashboard</Page.Header.Title.Heading>
+      </Page.Header.Title>
+      <Page.Header.Form>...</Page.Header.Form>
+    </div>
+  );
+}
+
+<Page>
+  <Page.Header asChild>
+    <RemoteHeader />
+  </Page.Header>
+</Page>
+
+// ✗ Wrong — PageTitle expects Heading as a slot element, not a plain string child
+function BrokenRemoteHeader() {
+  return (
+    <div>
+      <Page.Header.Title>Dashboard</Page.Header.Title> {/* Heading slot not filled */}
+    </div>
+  );
+}
+```
+
+`asChild` is designed to make code-splitting easier, not to break slot contracts. A remote component filling a slot via `asChild` is responsible for knowing and satisfying the slot component's contract.
+
+**Comparison of approaches:**
+
+| Approach | Slot identity visible at callsite | Remote component is layout-agnostic | No changes to remote component |
+|---|---|---|---|
+| `headerSlot` prop | ✗ | ✓ | ✓ |
+| Self-wrapping in slot | ✗ | ✗ | ✗ |
+| **`asChild`** | **✓** | **✓** | **✓** |
+
+---
 
 ### Static Prop Binding with `withProps`
 
