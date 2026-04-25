@@ -233,6 +233,14 @@ section {
   font-weight: 400;
 }
 
+/* TagList */
+
+.tag-list {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
 /* Card */
 
 .card {
@@ -278,4 +286,73 @@ section {
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
+}
+
+/* Panel (useSlotContext demo) */
+
+.panel {
+  border: 1.5px solid #d0d0d0;
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 400px;
+}
+
+.panel__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #f8f8f8;
+  border-bottom: 1.5px solid transparent;
+}
+
+.panel:has(.panel__body) .panel__bar {
+  border-bottom-color: #d0d0d0;
+}
+
+.panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.panel__body {
+  padding: 14px;
+  font-size: 13px;
+  color: #333;
+}
+
+.panel-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.panel-badge--closed {
+  background: #f0f0f0;
+  color: #888;
+}
+
+.panel-badge--open {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.panel-btn {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1.5px solid #d0d0d0;
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.panel-btn:hover {
+  background: #f5f5f5;
 }
