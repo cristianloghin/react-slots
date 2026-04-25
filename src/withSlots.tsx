@@ -23,22 +23,31 @@ import { SlotContextStore } from "./SlotContextStore";
 const SLOT_KEY = Symbol("rst-slot");
 
 /**
- * Creates a component builder with a slot-based composition pattern
+ * Creates a component builder with a slot-based composition pattern.
  *
- * @param slotsConfig - Configuration object mapping slot names to their config
- * @returns A builder with render<T>() method
+ * @param slotsConfig - Slot name → config map
+ * @param options.context - Optional context shape with default values. When provided,
+ *   the render function receives `provideContext` and the returned component can be
+ *   passed to `useSlotContext` to read context values from within slot components.
+ * @returns A builder with a `render<T>()` method
  *
  * @example
  * ```tsx
- * // With custom props
+ * // Without context
  * const Card = createComponentWithSlots({ Header: {}, Body: {} })
  *   .render<{ className: string }>(({ slots, className }) => (
  *     <div className={className}>{slots.Header}{slots.Body}</div>
  *   ));
  *
- * // Without custom props
- * const Simple = createComponentWithSlots({ Header: {} })
- *   .render(({ slots }) => <div>{slots.Header}</div>);
+ * // With context — slot components can call useSlotContext(Panel, s => s.open)
+ * const Panel = createComponentWithSlots(
+ *   { Body: {} },
+ *   { context: { open: false, toggle: () => {} } },
+ * ).render(({ slots, provideContext }) => {
+ *   const [open, setOpen] = useState(false);
+ *   provideContext({ open, toggle: () => setOpen(o => !o) });
+ *   return <div>{open && slots.Body}</div>;
+ * });
  * ```
  */
 export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
