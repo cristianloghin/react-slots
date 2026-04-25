@@ -1,6 +1,5 @@
 import {
   ForwardRefExoticComponent,
-  FunctionComponent,
   MemoExoticComponent,
   PropsWithChildren,
   ReactElement,
@@ -10,7 +9,6 @@ import {
 
 // Base slot function type
 export type Slot<T, E extends HTMLElement = HTMLElement> =
-  | FunctionComponent<T>
   | ((props: T) => ReactNode)
   | ForwardRefExoticComponent<PropsWithChildren<T> & RefAttributes<E>>
   | MemoExoticComponent<(props: T) => ReactNode>;
@@ -23,8 +21,6 @@ export interface SlotConfig<T = any> {
   defaultContent?: ReactNode;
   className?: string;
 }
-
-type ExtractSlotProps<C> = C extends Slot<infer P> ? P : { children?: ReactNode };
 
 /**
  * Type utility: Extracts the slot component functions from the config
@@ -52,9 +48,7 @@ export type ExtractSlotComponents<S extends Record<string, SlotConfig>> = {
  * This is used for the `slots` object passed to the render function
  */
 export type RenderedSlots<S extends Record<string, SlotConfig>> = {
-  [K in keyof S]: S[K] extends { multiple: true }
-    ? ReactElement<ExtractSlotProps<S[K]["component"]>>[]
-    : ReactElement<ExtractSlotProps<S[K]["component"]>> | null;
+  [K in keyof S]: S[K] extends { multiple: true } ? ReactNode[] : ReactNode;
 };
 
 /**

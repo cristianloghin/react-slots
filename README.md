@@ -17,6 +17,7 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Same Component for Multiple Slots](#same-component-for-multiple-slots)
   - [Nested Slot Components](#nested-slot-components)
   - [Injecting Runtime Props](#injecting-runtime-props)
+  - [Static Prop Binding with `withProps`](#static-prop-binding-with-withprops)
 - [TypeScript Support](#typescript-support)
 - [Best Practices](#best-practices)
 - [Real-World Applications](#real-world-applications)
@@ -67,6 +68,7 @@ yarn add @mikrostack/rst
 - **Non-Slot Children Handling**: Collect and handle non-matching children
 - **Flexible Rendering**: Full control over slot positioning and layout
 - **Same Component for Multiple Slots**: Two slots can share the same underlying component — RST uses per-slot Symbols for identity, not component reference
+- **`withProps`**: Bind static props to a component at definition time, removing them from the public slot surface
 - **`injectSlotProps`**: Typed helper for passing render-function state into a slot without modifying the slots API
 
 ## API Reference
@@ -107,6 +109,23 @@ render<T extends object = {}>(
 #### Returns
 
 A React component with slot component functions attached as static properties.
+
+---
+
+### `withProps`
+
+```typescript
+function withProps<P extends object, B extends Partial<P>>(
+  Component: (props: P) => ReactNode,
+  boundProps: B,
+): (props: Omit<P, keyof B>) => ReactNode
+```
+
+Returns a new component with `boundProps` pre-applied. The bound keys are removed from the returned component's prop surface — the type system correctly reflects what the consumer still needs to provide.
+
+Bound props act as **defaults**: any prop the consumer passes directly on the slot element takes priority and overrides the bound value.
+
+`withProps` is slot-agnostic and can be used anywhere, but it is particularly useful in slot configs to bind static, definition-time values without touching the render function.
 
 ---
 
@@ -368,6 +387,53 @@ const Page = createComponentWithSlots({
 </Page>
 ```
 
+### Static Prop Binding with `withProps`
+
+`withProps` binds static props at definition time. The render function stays clean, and the bound keys disappear from the slot's public prop surface.
+
+```tsx
+import { createComponentWithSlots, withProps } from "@mikrostack/rst";
+
+function SidebarSlot({ side, children }: { side: "left" | "right"; children?: ReactNode }) {
+  return <aside className={`sidebar sidebar--${side}`}>{children}</aside>;
+}
+
+// Without withProps — side must be injected at render time
+const Layout = createComponentWithSlots({
+  LeftSidebar:  { component: SidebarSlot },
+  RightSidebar: { component: SidebarSlot },
+}).render(({ slots }) => (
+  <div>
+    {injectSlotProps(slots.LeftSidebar,  { side: "left"  })}
+    {injectSlotProps(slots.RightSidebar, { side: "right" })}
+  </div>
+));
+
+// With withProps — side is bound at definition time, render function stays clean
+const Layout = createComponentWithSlots({
+  LeftSidebar:  { component: withProps(SidebarSlot, { side: "left"  }) },
+  RightSidebar: { component: withProps(SidebarSlot, { side: "right" }) },
+}).render(({ slots }) => (
+  <div>
+    {slots.LeftSidebar}
+    {slots.RightSidebar}
+  </div>
+));
+
+// Usage — side is no longer part of the slot's public API
+<Layout>
+  <Layout.LeftSidebar>Nav</Layout.LeftSidebar>
+  <Layout.RightSidebar>Aside</Layout.RightSidebar>
+</Layout>
+```
+
+| | `withProps` | `injectSlotProps` |
+|---|---|---|
+| When | Definition time | Render time |
+| Input | Component + static props | Element + dynamic props |
+| Returns | New component type | Cloned element |
+| Use case | Props that never change | Props that depend on render state |
+
 ### Injecting Runtime Props
 
 Use `injectSlotProps` to forward render-function state (callbacks, open flags, refs) into a slot without altering the `slots.X` shape:
@@ -455,7 +521,8 @@ const Modal = createComponentWithSlots({
 4. **Consider required slots**: Mark slots as required when they're essential for functionality
 5. **Provide sensible defaults**: Use default content for optional slots with common patterns
 6. **Handle non-slot children appropriately**: Have a plan for how to deal with non-slot children
-7. **Use `injectSlotProps` for runtime props**: This is the only mechanism for passing render-time data into a slot; keep slot components focused on structure, not state
+7. **Use `withProps` for static prop binding**: Prefer `withProps` over `injectSlotProps` when the bound values never change — it keeps the render function clean and makes the contract explicit at the config level
+8. **Use `injectSlotProps` for runtime props**: This is the mechanism for passing render-time data (callbacks, open flags) into a slot; keep slot components focused on structure, not state
 
 ## Real-World Applications
 
