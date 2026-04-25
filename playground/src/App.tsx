@@ -1,4 +1,8 @@
-import { createComponentWithSlots, useSlotContext, withProps } from "@mikrostack/rst";
+import {
+  createComponentWithSlots,
+  useSlotContext,
+  withProps,
+} from "@mikrostack/rst";
 import { useState } from "react";
 import "./styles.css";
 
@@ -115,9 +119,7 @@ const Layout = createComponentWithSlots({
 
 const TagList = createComponentWithSlots({
   Tag: { multiple: true },
-}).render(({ slots }) => (
-  <div className="tag-list">{slots.Tag}</div>
-));
+}).render(({ slots }) => <div className="tag-list">{slots.Tag}</div>);
 
 // ─── Basic card ───────────────────────────────────────────────────────────────
 
@@ -179,7 +181,9 @@ const Panel = createComponentWithSlots(
 function PanelStatusBadge() {
   const open = useSlotContext(Panel, (s) => s.open);
   return (
-    <span className={`panel-badge ${open ? "panel-badge--open" : "panel-badge--closed"}`}>
+    <span
+      className={`panel-badge ${open ? "panel-badge--open" : "panel-badge--closed"}`}
+    >
       {open ? "open" : "closed"}
     </span>
   );
@@ -206,14 +210,17 @@ export default function App() {
       <section>
         <h3>Normal — three levels of slot collection</h3>
         <p className="hint">
-          <code>PageHeader</code> collects <code>Title</code> and <code>Form</code>.{" "}
-          <code>PageTitle</code> collects <code>Icon</code> and <code>Heading</code>.
+          <code>PageHeader</code> collects <code>Title</code> and{" "}
+          <code>Form</code>. <code>PageTitle</code> collects <code>Icon</code>{" "}
+          and <code>Heading</code>.
         </p>
         <Page>
           <Page.Header>
             <Page.Header.Title>
               <Page.Header.Title.Icon>⚡</Page.Header.Title.Icon>
-              <Page.Header.Title.Heading>My Dashboard</Page.Header.Title.Heading>
+              <Page.Header.Title.Heading>
+                My Dashboard
+              </Page.Header.Title.Heading>
             </Page.Header.Title>
             <Page.Header.Form>
               <input className="search-input" placeholder="Search…" />
@@ -283,14 +290,22 @@ export default function App() {
       <section>
         <h3>TagList — multiple slot instances</h3>
         <p className="hint">
-          No <code>key</code> props on the children — RST assigns index-based keys
-          automatically. Open the console to confirm no key warnings.
+          No <code>key</code> props on the children — RST assigns index-based
+          keys automatically. Open the console to confirm no key warnings.
         </p>
         <TagList>
-          <TagList.Tag><Badge label="react" color="#61dafb33" /></TagList.Tag>
-          <TagList.Tag><Badge label="typescript" color="#3178c633" /></TagList.Tag>
-          <TagList.Tag><Badge label="slots" color="#a78bfa33" /></TagList.Tag>
-          <TagList.Tag><Badge label="no keys needed" color="#fde68a33" /></TagList.Tag>
+          <TagList.Tag>
+            <Badge label="react" color="#61dafb33" />
+          </TagList.Tag>
+          <TagList.Tag>
+            <Badge label="typescript" color="#3178c633" />
+          </TagList.Tag>
+          <TagList.Tag>
+            <Badge label="slots" color="#a78bfa33" />
+          </TagList.Tag>
+          <TagList.Tag>
+            <Badge label="no keys needed" color="#fde68a33" />
+          </TagList.Tag>
         </TagList>
       </section>
 
@@ -317,11 +332,11 @@ export default function App() {
       <section>
         <h3>useSlotContext — typed slot context</h3>
         <p className="hint">
-          <code>PanelStatusBadge</code> uses the selector overload and re-renders
-          only when <code>open</code> changes.{" "}
-          <code>PanelToggleButton</code> uses the full-shape overload to read both{" "}
-          <code>open</code> and <code>toggle</code>. Neither component knows
-          anything about <code>Panel</code>'s internals.
+          <code>PanelStatusBadge</code> uses the selector overload and
+          re-renders only when <code>open</code> changes.{" "}
+          <code>PanelToggleButton</code> uses the full-shape overload to read
+          both <code>open</code> and <code>toggle</code>. Neither component
+          knows anything about <code>Panel</code>'s internals.
         </p>
         <Panel>
           <Panel.Header>
