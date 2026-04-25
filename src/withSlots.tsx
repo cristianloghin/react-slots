@@ -1,17 +1,24 @@
 import {
   Children,
   cloneElement,
+  createContext,
   isValidElement,
   ReactElement,
   ReactNode,
+  useCallback,
+  useLayoutEffect,
+  useRef,
 } from "react";
 import {
   ComponentBuilder,
+  ComponentBuilderWithContext,
+  ContextComponent,
   ExtractSlotComponents,
   RenderedSlots,
   Slot,
   SlotConfig,
 } from "./types";
+import { SlotContextStore } from "./SlotContextStore";
 
 const SLOT_KEY = Symbol("rst-slot");
 
@@ -36,7 +43,17 @@ const SLOT_KEY = Symbol("rst-slot");
  */
 export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
   slotsConfig: S,
-): ComponentBuilder<S> {
+): ComponentBuilder<S>;
+
+export function createComponentWithSlots<S extends Record<string, SlotConfig>, C extends object>(
+  slotsConfig: S,
+  options: { context: C },
+): ComponentBuilderWithContext<S, C>;
+
+export function createComponentWithSlots<S extends Record<string, SlotConfig>, C extends object>(
+  slotsConfig: S,
+  options?: { context: C },
+): ComponentBuilder<S> | ComponentBuilderWithContext<S, C> {
   type SlotName = keyof S;
 
   // Each slot gets a unique per-instance Symbol so two slots sharing the same
@@ -69,12 +86,22 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
     slotComponents[slotKey] = wrapper;
   });
 
+  const contextDefaults = options?.context;
+  // The context object is created once per createComponentWithSlots call and shared
+  // across all instances. Each instance provides its own store via the Provider.
+  // The default value (used when no Provider is in the tree) is a store initialised
+  // with the declared defaults, so useSlotContext never returns undefined.
+  const StoreContext = contextDefaults !== undefined
+    ? createContext<SlotContextStore<C>>(new SlotContextStore<C>(contextDefaults))
+    : null;
+
   return {
     render: <T extends object = {}>(
       renderFn: (
         props: T & {
           slots: RenderedSlots<S>;
           nonSlotChildren: ReactElement[];
+          provideContext: (value: C) => void;
         },
       ) => ReactElement,
     ) => {
@@ -82,6 +109,28 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
         children,
         ...props
       }: T & { children?: ReactNode }) => {
+        // Per-instance store — lazily initialised on first render so each mounted
+        // instance of this component has its own isolated context.
+        const storeRef = useRef<SlotContextStore<C> | null>(null);
+        if (storeRef.current === null && contextDefaults !== undefined) {
+          storeRef.current = new SlotContextStore<C>(contextDefaults);
+        }
+
+        // provideContext captures the value during render; the layout effect
+        // pushes it to the store after the commit so store.set is never called
+        // during a React render pass.
+        const pendingContextRef = useRef<C | null>(null);
+        const provideContext = useCallback((value: C) => {
+          pendingContextRef.current = value;
+        }, []);
+
+        useLayoutEffect(() => {
+          if (storeRef.current !== null && pendingContextRef.current !== null) {
+            storeRef.current.set(pendingContextRef.current);
+            pendingContextRef.current = null;
+          }
+        });
+
         const slotElements = {} as {
           [K in SlotName]: ReactElement[] | ReactElement | null;
         };
@@ -180,15 +229,34 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
           typeSafeSlots[key] = slotElements[key] as any;
         });
 
-        return <>{renderFn({ ...props, slots: typeSafeSlots, nonSlotChildren } as any)}</>;
+        const renderResult = renderFn({
+          ...props,
+          slots: typeSafeSlots,
+          nonSlotChildren,
+          provideContext,
+        } as any);
+
+        if (StoreContext !== null && storeRef.current !== null) {
+          return (
+            <StoreContext.Provider value={storeRef.current}>
+              {renderResult}
+            </StoreContext.Provider>
+          );
+        }
+        return <>{renderResult}</>;
       };
 
       Object.entries(slotComponents).forEach(([key, slot]) => {
         (Component as any)[key] = slot;
       });
 
+      if (StoreContext !== null) {
+        (Component as any).__storeContext = StoreContext;
+      }
+
       return Component as unknown as React.FC<T & { children?: ReactNode }> &
-        ExtractSlotComponents<S>;
+        ExtractSlotComponents<S> &
+        ContextComponent<C>;
     },
   };
 }

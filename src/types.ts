@@ -1,4 +1,5 @@
 import {
+  Context,
   ForwardRefExoticComponent,
   MemoExoticComponent,
   PropsWithChildren,
@@ -6,6 +7,7 @@ import {
   ReactNode,
   RefAttributes,
 } from "react";
+import type { SlotContextStore } from "./SlotContextStore";
 
 // Base slot function type
 export type Slot<T, E extends HTMLElement = HTMLElement> =
@@ -58,6 +60,30 @@ export type ExtractSlotComponents<S extends Record<string, SlotConfig>> = {
 export type RenderedSlots<S extends Record<string, SlotConfig>> = {
   [K in keyof S]: S[K] extends { multiple: true } ? ReactNode[] : ReactNode;
 };
+
+/**
+ * Marks a component as context-aware. The __storeContext property is the React
+ * Context object through which useSlotContext retrieves the store instance.
+ */
+export type ContextComponent<C extends object> = {
+  __storeContext: Context<SlotContextStore<C>>;
+};
+
+/**
+ * Builder interface returned by createComponentWithSlots when a context option is provided.
+ * The render function receives provideContext in addition to slots and nonSlotChildren.
+ */
+export interface ComponentBuilderWithContext<S extends Record<string, SlotConfig>, C extends object> {
+  render<T extends object = {}>(
+    render: (
+      props: T & {
+        slots: RenderedSlots<S>;
+        nonSlotChildren: ReactElement[];
+        provideContext: (value: C) => void;
+      },
+    ) => ReactElement,
+  ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S> & ContextComponent<C>;
+}
 
 /**
  * Builder interface returned by createComponentWithSlots
