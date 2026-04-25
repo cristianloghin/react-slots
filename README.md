@@ -19,6 +19,7 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Injecting Runtime Props](#injecting-runtime-props)
   - [Static Prop Binding with `withProps`](#static-prop-binding-with-withprops)
   - [Remote Slot Ownership with `asChild`](#remote-slot-ownership-with-aschild)
+  - [Typed Slot Context with `useSlotContext`](#typed-slot-context-with-useslotcontext)
 - [TypeScript Support](#typescript-support)
 - [Best Practices](#best-practices)
 - [Real-World Applications](#real-world-applications)
@@ -72,27 +73,41 @@ yarn add @mikrostack/rst
 - **`withProps`**: Bind static props to a component at definition time, removing them from the public slot surface
 - **`asChild`**: Prop on any slot component that lets a remote component (with its own state and queries) fill the slot without co-location
 - **`injectSlotProps`**: Typed helper for passing render-function state into a slot without modifying the slots API
+- **`useSlotContext`**: Typed hook for slot components to consume parent render state without manually wiring React context outside the slot system
 
 ## API Reference
 
 ### `createComponentWithSlots`
 
 ```typescript
+// Without context
 function createComponentWithSlots<S extends Record<string, SlotConfig>>(
   slotsConfig: S
 ): ComponentBuilder<S>
+
+// With context
+function createComponentWithSlots<S extends Record<string, SlotConfig>, C extends object>(
+  slotsConfig: S,
+  options: { context: C }
+): ComponentBuilderWithContext<S, C>
 ```
 
-Returns a builder object with the `render` method:
+Returns a builder object with the `render` method.
 
 #### `builder.render<T>(renderFn)`
 
 Define the component's render function with optional custom props.
 
 ```typescript
+// Without context
 render<T extends object = {}>(
-  render: (props: T & { slots: {...}, nonSlotChildren: ReactElement[] }) => ReactElement
+  render: (props: T & { slots: {...}; nonSlotChildren: ReactElement[] }) => ReactElement
 ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S>
+
+// With context — render function also receives provideContext
+render<T extends object = {}>(
+  render: (props: T & { slots: {...}; nonSlotChildren: ReactElement[]; provideContext: (value: C) => void }) => ReactElement
+): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S> & ContextComponent<C>
 ```
 
 **Type parameter `T`**: Custom component props (defaults to `{}` if omitted)
@@ -105,11 +120,13 @@ render<T extends object = {}>(
 - `multiple`: If true, multiple instances of the slot are collected in an array. Children without a `key` receive one automatically based on their index.
 - `defaultContent`: Default content to use if the slot is not provided
 
-**`render`**: Function that renders the component using the organized slots
+**`options.context`** *(optional)*: An object defining the shape and default values of the slot context. When provided, RST creates a scoped store for this component and makes `provideContext` available in the render function. The default values are used as the initial store state and as the fallback when `useSlotContext` is called outside a provider.
+
+**`render`**: Function that renders the component using the organized slots. When context is configured, also receives `provideContext` — call it with the current context values on every render.
 
 #### Returns
 
-A React component with slot component functions attached as static properties.
+A React component with slot component functions attached as static properties. When context is configured, the returned component also carries `__storeContext` for use with `useSlotContext`.
 
 ---
 
@@ -149,6 +166,33 @@ import { injectSlotProps } from "@mikrostack/rst";
 ```
 
 `injectSlotProps` is the only mechanism for passing runtime props to a slot. The `props` argument is typed against the slot component's own prop type, so mismatched props are caught at compile time.
+
+---
+
+### `useSlotContext`
+
+```typescript
+// Selector overload — recommended
+function useSlotContext<C extends object, T>(
+  layout: ContextComponent<C>,
+  selector: (value: C) => T,
+): T
+
+// Full-shape overload
+function useSlotContext<C extends object>(
+  layout: ContextComponent<C>,
+): C
+```
+
+Reads a value from the typed slot context of a layout component. Must be called from inside a component that is rendered within the layout's slot tree.
+
+**`layout`**: The slotted component returned by `createComponentWithSlots(..., { context })`. Passing a component without a context option is a compile-time error.
+
+**`selector`** *(optional)*: A function that picks a specific value from the context shape. Re-renders the caller only when the selected value changes. Omit to subscribe to the full context object — the caller then re-renders on any context update.
+
+The selector form is strongly preferred when only one or two values are needed. It keeps re-renders scoped and makes the consumed values explicit at the call site.
+
+When called outside any instance of `layout`, `useSlotContext` returns the default values declared in the `context` option.
 
 ## Usage Examples
 
@@ -581,6 +625,92 @@ const Page = createComponentWithSlots({
 </Page>
 ```
 
+### Typed Slot Context with `useSlotContext`
+
+Slots that need to read or drive parent state — open/close flags, callbacks, orientation — can use `useSlotContext` instead of manually wiring a React context outside the slot system. The context shape is declared once in the config and is automatically typed at every call site.
+
+```tsx
+import { createComponentWithSlots, useSlotContext } from "@mikrostack/rst";
+
+// Declare the context shape and defaults alongside the slot config
+const Panel = createComponentWithSlots(
+  {
+    Header: {},
+    Trigger: {},
+    Body: {},
+  },
+  {
+    context: {
+      open: false,
+      toggle: () => {},
+    },
+  },
+).render(({ slots, provideContext }) => {
+  const [open, setOpen] = useState(false);
+
+  // Called on every render — RST pushes the value to the store after the commit
+  provideContext({ open, toggle: () => setOpen(o => !o) });
+
+  return (
+    <div className="panel">
+      <div className="panel-bar">
+        {slots.Header}
+        {slots.Trigger}
+      </div>
+      {open && <div className="panel-body">{slots.Body}</div>}
+    </div>
+  );
+});
+
+// Selector overload — re-renders only when `open` changes
+function PanelStatusBadge() {
+  const open = useSlotContext(Panel, s => s.open);
+  return <span>{open ? "Open" : "Closed"}</span>;
+}
+
+// Full-shape overload — reads both `open` and `toggle`
+function PanelToggleButton() {
+  const { open, toggle } = useSlotContext(Panel);
+  return <button onClick={toggle}>{open ? "Collapse" : "Expand"}</button>;
+}
+
+// Usage — both slot components are completely decoupled from Panel's internals
+<Panel>
+  <Panel.Header>
+    Settings <PanelStatusBadge />
+  </Panel.Header>
+  <Panel.Trigger>
+    <PanelToggleButton />
+  </Panel.Trigger>
+  <Panel.Body>
+    <p>Content visible when open.</p>
+  </Panel.Body>
+</Panel>
+```
+
+**Key points:**
+- The `context` option declares the shape and initial values. These are also the fallback values returned by `useSlotContext` when called outside a `<Panel>` instance.
+- `provideContext` is called on every render with the current values. RST captures it during the render pass and pushes it to the store after the commit — `store.set` is never called during a React render.
+- Each mounted instance of `Panel` has its own isolated store. Two `<Panel>` components on the same page do not share context.
+- The selector form (`useSlotContext(Panel, s => s.open)`) re-renders the caller only when the selected value changes. Prefer it over the full-shape overload when only one or two values are needed.
+- Passing a layout without a `context` option to `useSlotContext` is a compile-time error.
+
+**`provideContext` and defaults:**
+
+The `context` defaults should match the component's initial state. If `open: false` is the initial state, declare `open: false` as the default. This avoids a one-frame mismatch between the default store value and the first rendered state.
+
+```tsx
+// ✓ Defaults match initial useState values — no mismatch
+createComponentWithSlots({ ... }, { context: { open: false, toggle: () => {} } })
+.render(({ provideContext }) => {
+  const [open, setOpen] = useState(false); // matches default
+  provideContext({ open, toggle: () => setOpen(o => !o) });
+  // ...
+});
+```
+
+---
+
 ## TypeScript Support
 
 The system provides full TypeScript support with excellent type inference:
@@ -635,7 +765,8 @@ const Modal = createComponentWithSlots({
 5. **Provide sensible defaults**: Use default content for optional slots with common patterns
 6. **Handle non-slot children appropriately**: Have a plan for how to deal with non-slot children
 7. **Use `withProps` for static prop binding**: Prefer `withProps` over `injectSlotProps` when the bound values never change — it keeps the render function clean and makes the contract explicit at the config level
-8. **Use `injectSlotProps` for runtime props**: This is the mechanism for passing render-time data (callbacks, open flags) into a slot; keep slot components focused on structure, not state
+8. **Use `injectSlotProps` for runtime props**: Use it when a slot component needs render-time data (a specific callback, an open flag) but only a single slot needs it — simpler than a full context
+9. **Use `useSlotContext` when multiple slots share state**: If two or more slot components need to read or drive the same parent state, declare it in `context` rather than threading props through `injectSlotProps` on each slot individually. Use the selector overload to keep re-renders granular.
 
 ## Real-World Applications
 
