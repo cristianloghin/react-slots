@@ -114,7 +114,7 @@ describe("useSlotContext", () => {
     const IsolatedLayout = createComponentWithSlots(
       { Content: {} },
       { context: { id: "" } },
-    ).render(({ slots, provideContext, id }: { id: string; slots: any; nonSlotChildren: any; provideContext: any }) => {
+    ).render<{ id: string }>(({ slots, provideContext, id }) => {
       provideContext({ id });
       return <div>{slots.Content}</div>;
     });

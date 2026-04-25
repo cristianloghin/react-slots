@@ -30,8 +30,12 @@ export function useSlotContext<C extends object, T = C>(
   selector?: (value: C) => T,
 ): T | C {
   const store = useContext(layout.__storeContext);
+  const getSnapshot = selector
+    ? () => selector(store.get())
+    : () => store.get() as unknown as T;
+
   return useSyncExternalStore(
     (notify) => store.subscribe(notify),
-    selector ? () => selector(store.get()) : () => store.get(),
+    getSnapshot,
   );
 }
