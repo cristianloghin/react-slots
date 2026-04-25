@@ -100,11 +100,10 @@ render<T extends object = {}>(
 #### Parameters
 
 **`slotsConfig`**: An object mapping slot names to slot configuration objects. Each configuration can include:
-- `component`: Optional custom slot component. If omitted, uses default: `({children}) => <div data-slot-id={name}>{children}</div>`
+- `component`: Optional custom slot component. If omitted, the slot's content renders directly without a wrapper element.
 - `isRequired`: If true, the slot must be provided
 - `multiple`: If true, multiple instances of the slot are collected in an array. Children without a `key` receive one automatically based on their index.
 - `defaultContent`: Default content to use if the slot is not provided
-- `className`: Optional class name applied to the default wrapper `<div>` (ignored when `component` is provided)
 
 **`render`**: Function that renders the component using the organized slots
 
@@ -158,7 +157,7 @@ import { injectSlotProps } from "@mikrostack/rst";
 ```tsx
 // 1. Create component with slots (using default wrappers)
 const Card = createComponentWithSlots({
-  Header: {},  // Uses default: ({children}) => <div data-slot-id="Header">{children}</div>
+  Header: {},
   Body: {},
   Footer: {}
 }).render<{ className?: string }>(({ slots, className }) => (
@@ -629,7 +628,7 @@ const Modal = createComponentWithSlots({
 
 ## Best Practices
 
-1. **Use default wrappers for simple slots**: Let the system generate `({children}) => <div data-slot-id={name}>{children}</div>` automatically
+1. **Use default wrappers for simple slots**: Omit `component` when the slot needs no custom structure — the content renders without a wrapper element
 2. **Provide custom components only when needed**: Only specify `component` when you need custom styling, logic, or structure
 3. **Use meaningful slot names**: Names should reflect their purpose (Header, Body, Footer, etc.)
 4. **Consider required slots**: Mark slots as required when they're essential for functionality

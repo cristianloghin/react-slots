@@ -19,7 +19,6 @@ export interface SlotConfig<T = any> {
   isRequired?: boolean;
   multiple?: boolean;
   defaultContent?: ReactNode;
-  className?: string;
 }
 
 /**

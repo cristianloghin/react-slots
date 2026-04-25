@@ -61,9 +61,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
       Object.assign(wrapper, Base);
     } else {
       wrapper = ({ children, asChild: _ }: { children?: ReactNode; asChild?: boolean }) => (
-        <div data-slot-id={String(slotKey)} className={config.className}>
-          {children}
-        </div>
+        <>{children}</>
       );
     }
 
