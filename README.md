@@ -20,6 +20,8 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Static Prop Binding with `withProps`](#static-prop-binding-with-withprops)
   - [Remote Slot Ownership with `asChild`](#remote-slot-ownership-with-aschild)
   - [Typed Slot Context with `useSlotContext`](#typed-slot-context-with-useslotcontext)
+  - [Dot-path Slot Keys](#dot-path-slot-keys)
+  - [Reusable Slot Groups with `defineSlotGroup`](#reusable-slot-groups-with-defineslotgroup)
 - [TypeScript Support](#typescript-support)
 - [Best Practices](#best-practices)
 - [Real-World Applications](#real-world-applications)
@@ -74,6 +76,9 @@ yarn add @mikrostack/rst
 - **`asChild`**: Prop on any slot component that lets a remote component (with its own state and queries) fill the slot without co-location
 - **`injectSlotProps`**: Typed helper for passing render-function state into a slot without modifying the slots API
 - **`useSlotContext`**: Typed hook for slot components to consume parent render state without manually wiring React context outside the slot system
+- **Dot-path slot keys**: Define hierarchical slot namespaces (`"Header.Title"`) that automatically generate nested static accessors (`Page.Header.Title`) while keeping the render-function API flat (`slots["Header.Title"]`)
+- **`prefixSlots`**: Low-level helper that prefixes a slot config record — the primitive on which `defineSlotGroup` is built
+- **`defineSlotGroup`**: Encapsulates a group of related slots (config + render logic) into a reusable unit that can be spread into any parent slot config
 
 ## API Reference
 
@@ -193,6 +198,54 @@ Reads a value from the typed slot context of a layout component. Must be called 
 The selector form is strongly preferred when only one or two values are needed. It keeps re-renders scoped and makes the consumed values explicit at the call site.
 
 When called outside any instance of `layout`, `useSlotContext` returns the default values declared in the `context` option.
+
+---
+
+### `prefixSlots`
+
+```typescript
+function prefixSlots<Prefix extends string, S extends Record<string, SlotConfig>>(
+  prefix: Prefix,
+  config: S,
+): PrefixedConfig<Prefix, S>
+```
+
+Returns a new slot config record with every key prefixed by `prefix + "."`. This is the low-level primitive used by `defineSlotGroup`; reach for it when you need to merge prefixed config manually or build a custom group abstraction.
+
+```ts
+import { prefixSlots } from "@mikrostack/rst";
+
+const headerConfig = prefixSlots("Header", {
+  Title: {},
+  Actions: { multiple: true },
+});
+// → { "Header.Title": {}, "Header.Actions": { multiple: true } }
+```
+
+---
+
+### `defineSlotGroup`
+
+```typescript
+function defineSlotGroup<Prefix extends string, S extends Record<string, SlotConfig>>(
+  prefix: Prefix,
+  config: S,
+  renderFn: (args: { slots: RenderedSlots<PrefixedConfig<Prefix, S>> }) => ReactElement,
+): {
+  config: () => PrefixedConfig<Prefix, S>;
+  render: (slots: RenderedSlots<PrefixedConfig<Prefix, S>>) => ReactElement;
+}
+```
+
+Packages a group of related slots together with their render logic into a reusable unit. The returned object has two members:
+
+**`.config()`**: Returns the prefixed slot config — spread it into a parent's slot config.
+
+**`.render(slots)`**: Calls the group's render function with the parent's fully resolved `slots` object. Call this from the parent's render function wherever the group's output should appear.
+
+Multiple groups can be spread into the same parent without conflict as long as their prefixes differ.
+
+---
 
 ## Usage Examples
 
@@ -717,6 +770,113 @@ createComponentWithSlots({ ... }, { context: { open: false, toggle: () => {} } }
   provideContext({ open, toggle: () => setOpen(o => !o) });
   // ...
 });
+```
+
+---
+
+### Dot-path Slot Keys
+
+When a slot config key contains dots (`"Header.Title"`), RST automatically generates a nested static accessor on the component (`Page.Header.Title`). The render function always uses the flat string form (`slots["Header.Title"]`).
+
+```tsx
+import { createComponentWithSlots } from "@mikrostack/rst";
+
+const Page = createComponentWithSlots({
+  "Header.Title": {},
+  "Header.Actions": { multiple: true },
+  Body: { isRequired: true },
+}).render(({ slots }) => (
+  <div>
+    <header>
+      {slots["Header.Title"]}
+      <div>{slots["Header.Actions"]}</div>
+    </header>
+    <main>{slots.Body}</main>
+  </div>
+));
+
+// Static accessors generated automatically:
+// Page.Header.Title, Page.Header.Actions, Page.Body
+<Page>
+  <Page.Header.Title>My Page</Page.Header.Title>
+  <Page.Header.Actions>Save</Page.Header.Actions>
+  <Page.Header.Actions>Cancel</Page.Header.Actions>
+  <Page.Body>…</Page.Body>
+</Page>
+```
+
+Dot-path keys support arbitrary depth (`"A.B.C"` → `Component.A.B.C`). Plain keys and dot-path keys can be freely mixed in the same config. The dot notation is purely a namespacing convention for the static accessor — slot identity and collection remain the same as with plain keys.
+
+---
+
+### Reusable Slot Groups with `defineSlotGroup`
+
+`defineSlotGroup` bundles a set of related slots with their render markup into a reusable unit, then lets multiple parent components share that unit without duplicating config or rendering code.
+
+```tsx
+import { createComponentWithSlots, defineSlotGroup } from "@mikrostack/rst";
+
+const headerGroup = defineSlotGroup(
+  "Header",
+  { Title: {}, Actions: { multiple: true } },
+  ({ slots }) => (
+    <header>
+      <h1>{slots["Header.Title"]}</h1>
+      <div className="actions">{slots["Header.Actions"]}</div>
+    </header>
+  ),
+);
+
+// Spread the group config into one or more parent components
+const Page = createComponentWithSlots({
+  ...headerGroup.config(),
+  Body: { isRequired: true },
+}).render(({ slots }) => (
+  <div>
+    {headerGroup.render(slots)}
+    <main>{slots.Body}</main>
+  </div>
+));
+
+const Dialog = createComponentWithSlots({
+  ...headerGroup.config(),
+  Content: {},
+  Footer: {},
+}).render(({ slots }) => (
+  <div className="dialog">
+    {headerGroup.render(slots)}
+    <div className="dialog__body">{slots.Content}</div>
+    <footer>{slots.Footer}</footer>
+  </div>
+));
+
+// Both components expose the same Header.* accessor surface
+<Page>
+  <Page.Header.Title>Dashboard</Page.Header.Title>
+  <Page.Body>…</Page.Body>
+</Page>
+
+<Dialog>
+  <Dialog.Header.Title>Confirm</Dialog.Header.Title>
+  <Dialog.Content>Are you sure?</Dialog.Content>
+</Dialog>
+```
+
+Multiple groups can be composed into the same parent as long as their prefixes differ:
+
+```tsx
+const footerGroup = defineSlotGroup("Footer", { Links: {}, Copyright: {} }, …);
+
+const Layout = createComponentWithSlots({
+  ...headerGroup.config(),
+  ...footerGroup.config(),
+}).render(({ slots }) => (
+  <div>
+    {headerGroup.render(slots)}
+    <main>…</main>
+    {footerGroup.render(slots)}
+  </div>
+));
 ```
 
 ---

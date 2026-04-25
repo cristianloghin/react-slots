@@ -23,16 +23,28 @@ export interface SlotConfig<T = any> {
   defaultContent?: ReactNode;
 }
 
-/**
- * Type utility: Extracts the slot component functions from the config
- *
- * For each slot in the config:
- * - If a custom component is provided, use that component's type
- * - Otherwise, use the default wrapper type: Slot<{ children?: ReactNode }>
- *
- * This is used for the return type to attach slot components as static properties
- * Example: Card.Header, Card.Body, etc.
- */
+// ─── Dot-path utilities ───────────────────────────────────────────────────────
+
+// Splits "Header.Title" → ["Header", "Title"]; "Body" → ["Body"]
+type SplitPath<S extends string> =
+  S extends `${infer Head}.${infer Tail}` ? [Head, ...SplitPath<Tail>] : [S];
+
+// Builds { Header: { Title: Value } } from ["Header", "Title"] + Value
+type BuildPath<Parts extends string[], Value> =
+  Parts extends [infer Head, ...infer Tail]
+    ? Tail extends string[]
+      ? Tail extends []
+        ? Head extends string ? { [K in Head]: Value } : never
+        : Head extends string ? { [K in Head]: BuildPath<Tail, Value> } : never
+      : never
+    : never;
+
+// Merges a union of object types into a single intersection
+type UnionToIntersection<U> =
+  (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
+
+// ─── Slot component type extraction ──────────────────────────────────────────
+
 // Extracts the props type from a callable component type.
 type ComponentPropsOf<C> = C extends (props: infer P) => any
   ? P
@@ -41,25 +53,42 @@ type ComponentPropsOf<C> = C extends (props: infer P) => any
 // Strips the call signature from a type, leaving only static properties (e.g. Title, Form).
 type StaticPropsOf<C> = Omit<C, keyof ((...args: any[]) => any)>;
 
-export type ExtractSlotComponents<S extends Record<string, SlotConfig>> = {
-  [K in keyof S]: S[K]["component"] extends Slot<any>
-    ? ((props: ComponentPropsOf<S[K]["component"]> & { asChild?: boolean }) => ReactNode) &
-        StaticPropsOf<S[K]["component"]>
+// The slot accessor type for a single slot config entry.
+type SlotComponentFor<C extends SlotConfig> =
+  C["component"] extends Slot<any>
+    ? ((props: ComponentPropsOf<C["component"]> & { asChild?: boolean }) => ReactNode) &
+        StaticPropsOf<C["component"]>
     : (props: { children?: ReactNode; asChild?: boolean }) => ReactNode;
-};
 
 /**
- * Type utility: Determines the type of rendered slot content based on config
- *
- * For each slot:
- * - If `multiple: true`, the slot is an array typed to the component's props
- * - Otherwise, the slot is a single element typed to the component's props, or null
- *
- * This is used for the `slots` object passed to the render function
+ * Derives the nested static property type from a slot config.
+ * Plain keys ("Body") produce top-level properties; dot-path keys ("Header.Title")
+ * produce nested properties (Component.Header.Title).
+ */
+export type ExtractSlotComponents<S extends Record<string, SlotConfig>> =
+  UnionToIntersection<
+    { [K in keyof S]: BuildPath<SplitPath<K & string>, SlotComponentFor<S[K]>> }[keyof S]
+  >;
+
+/**
+ * Type utility: Determines the type of rendered slot content based on config.
+ * The slots object in the render function is always keyed by the full dot-path
+ * string (e.g. slots["Header.Title"]), never as a nested accessor.
  */
 export type RenderedSlots<S extends Record<string, SlotConfig>> = {
   [K in keyof S]: S[K] extends { multiple: true } ? ReactNode[] : ReactNode;
 };
+
+// ─── prefixSlots / defineSlotGroup types ─────────────────────────────────────
+
+/**
+ * Maps { Title: SlotConfig } to { "Header.Title": SlotConfig } for a given prefix.
+ */
+export type PrefixedConfig<Prefix extends string, S extends Record<string, SlotConfig>> = {
+  [K in keyof S as `${Prefix}.${K & string}`]: S[K];
+};
+
+// ─── Context types ────────────────────────────────────────────────────────────
 
 /**
  * Marks a component as context-aware. The __storeContext property is the React
@@ -68,6 +97,8 @@ export type RenderedSlots<S extends Record<string, SlotConfig>> = {
 export type ContextComponent<C extends object> = {
   __storeContext: Context<SlotContextStore<C>>;
 };
+
+// ─── Builder interfaces ───────────────────────────────────────────────────────
 
 /**
  * Builder interface returned by createComponentWithSlots when a context option is provided.
@@ -86,12 +117,12 @@ export interface ComponentBuilderWithContext<S extends Record<string, SlotConfig
 }
 
 /**
- * Builder interface returned by createComponentWithSlots
- * Allows fluent API for defining component props after slots are configured
+ * Builder interface returned by createComponentWithSlots.
+ * Allows fluent API for defining component props after slots are configured.
  */
 export interface ComponentBuilder<S extends Record<string, SlotConfig>> {
   /**
-   * Define component render function with optional custom props
+   * Define component render function with optional custom props.
    * @param render - Render function receiving props, slots, and nonSlotChildren
    *
    * @example

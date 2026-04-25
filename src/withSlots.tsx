@@ -256,7 +256,18 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
       };
 
       Object.entries(slotComponents).forEach(([key, slot]) => {
-        (Component as any)[key] = slot;
+        const parts = key.split(".");
+        if (parts.length === 1) {
+          (Component as any)[key] = slot;
+        } else {
+          // Dot-path key: "Header.Title" → Component.Header.Title
+          let node = Component as any;
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (!node[parts[i]]) node[parts[i]] = {};
+            node = node[parts[i]];
+          }
+          node[parts[parts.length - 1]] = slot;
+        }
       });
 
       if (StoreContext !== null) {
