@@ -1,6 +1,7 @@
 import {
   createComponentWithSlots,
   defineSlotGroup,
+  injectSlotProps,
   useSlotContext,
   withProps,
 } from "@mikrostack/rst";
@@ -12,7 +13,7 @@ import "./styles.css";
 const PageTitle = createComponentWithSlots({
   Icon: {},
   Heading: { isRequired: true },
-}).render(({ slots }) => (
+}).render<{ foo?: number }>(({ slots }) => (
   <div className="page-title">
     {slots.Icon && <div className="page-title__icon">{slots.Icon}</div>}
     <div className="page-title__heading">{slots.Heading}</div>
@@ -26,7 +27,9 @@ const PageHeader = createComponentWithSlots({
   Form: {},
 }).render(({ slots }) => (
   <div className="page-header">
-    <div className="page-header__title">{slots.Title}</div>
+    <div className="page-header__title">
+      {injectSlotProps(slots.Title, { foo: 78 })}
+    </div>
     {slots.Form && <div className="page-header__form">{slots.Form}</div>}
   </div>
 ));
@@ -203,7 +206,13 @@ function PanelToggleButton() {
 // ─── Dot-path slot keys demo ─────────────────────────────────────────────────
 
 // Plain component — receives an `icon` prop plus children
-function PostTitle({ icon, children }: { icon?: string; children?: React.ReactNode }) {
+function PostTitle({
+  icon,
+  children,
+}: {
+  icon?: string;
+  children?: React.ReactNode;
+}) {
   return (
     <div className="post-title">
       {icon && <span className="post-title__icon">{icon}</span>}
@@ -273,7 +282,9 @@ const Article = createComponentWithSlots({
   <article className="article">
     {articleHeaderGroup.render(slots)}
     <div className="article__body">{slots.Body}</div>
-    {slots.Footer && <footer className="article__footer">{slots.Footer}</footer>}
+    {slots.Footer && (
+      <footer className="article__footer">{slots.Footer}</footer>
+    )}
   </article>
 ));
 
@@ -410,19 +421,25 @@ export default function App() {
       <section>
         <h3>Dot-path slot keys</h3>
         <p className="hint">
-          The config uses <code>'Header.Title'</code>, <code>'Body.Content'</code>, etc.
-          RST splits each key and attaches nested accessors automatically —
-          no extra wiring needed.
+          The config uses <code>'Header.Title'</code>,{" "}
+          <code>'Body.Content'</code>, etc. RST splits each key and attaches
+          nested accessors automatically — no extra wiring needed.
         </p>
         <Post>
-          <Post.Header.Title icon="📝">Understanding React Slots</Post.Header.Title>
+          <Post.Header.Title icon="📝">
+            Understanding React Slots
+          </Post.Header.Title>
           <Post.Header.Meta>April 2025 · 5 min read</Post.Header.Meta>
           <Post.Body.Content>
             <Post.Body.Content.Lead>
               Dot-path keys namespace your slots without nesting components.
             </Post.Body.Content.Lead>
             <Post.Body.Content.Body>
-              <p>The full slot key is a flat string internally. The nested accessor is generated automatically from the dots in the key name.</p>
+              <p>
+                The full slot key is a flat string internally. The nested
+                accessor is generated automatically from the dots in the key
+                name.
+              </p>
             </Post.Body.Content.Body>
           </Post.Body.Content>
           <Post.Body.Aside>
@@ -448,7 +465,9 @@ export default function App() {
         </p>
         <Article>
           <Article.Header.Title>How RST Works</Article.Header.Title>
-          <Article.Header.Byline>By Cristian Loghin · April 2025</Article.Header.Byline>
+          <Article.Header.Byline>
+            By Cristian Loghin · April 2025
+          </Article.Header.Byline>
           <Article.Header.Tags>
             <Badge label="react" color="#61dafb33" />
           </Article.Header.Tags>
@@ -456,7 +475,10 @@ export default function App() {
             <Badge label="slots" color="#a78bfa33" />
           </Article.Header.Tags>
           <Article.Body>
-            <p>This is the article body. The header was rendered by the group's own render function.</p>
+            <p>
+              This is the article body. The header was rendered by the group's
+              own render function.
+            </p>
           </Article.Body>
           <Article.Footer>Published in the RST blog.</Article.Footer>
         </Article>

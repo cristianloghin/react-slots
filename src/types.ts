@@ -76,7 +76,11 @@ export type ExtractSlotComponents<S extends Record<string, SlotConfig>> =
  * string (e.g. slots["Header.Title"]), never as a nested accessor.
  */
 export type RenderedSlots<S extends Record<string, SlotConfig>> = {
-  [K in keyof S]: S[K] extends { multiple: true } ? ReactNode[] : ReactNode;
+  [K in keyof S]: S[K] extends { multiple: true }
+    ? ReactNode[]
+    : S[K] extends { component: infer C }
+    ? ReactElement<ComponentPropsOf<C> & { asChild?: boolean }> | null
+    : ReactNode;
 };
 
 // ─── prefixSlots / defineSlotGroup types ─────────────────────────────────────
