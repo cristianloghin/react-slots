@@ -22,6 +22,7 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Typed Slot Context with `useSlotContext`](#typed-slot-context-with-useslotcontext)
   - [Dot-path Slot Keys](#dot-path-slot-keys)
   - [Reusable Slot Groups with `defineSlotGroup`](#reusable-slot-groups-with-defineslotgroup)
+  - [Checking Slot Content with `isSlotFilled`](#checking-slot-content-with-isslotfilled)
 - [TypeScript Support](#typescript-support)
 - [Best Practices](#best-practices)
 - [Real-World Applications](#real-world-applications)
@@ -79,6 +80,7 @@ yarn add @mikrostack/rst
 - **Dot-path slot keys**: Define hierarchical slot namespaces (`"Header.Title"`) that automatically generate nested static accessors (`Page.Header.Title`) while keeping the render-function API flat (`slots["Header.Title"]`)
 - **`prefixSlots`**: Low-level helper that prefixes a slot config record — the primitive on which `defineSlotGroup` is built
 - **`defineSlotGroup`**: Encapsulates a group of related slots (config + render logic) into a reusable unit that can be spread into any parent slot config
+- **`isSlotFilled`**: Checks whether a slot has content — supports exact keys, key arrays, and wildcard prefix matching, with `all`/`some` semantics
 
 ## API Reference
 
@@ -171,6 +173,56 @@ import { injectSlotProps } from "@mikrostack/rst";
 ```
 
 `injectSlotProps` is the only mechanism for passing runtime props to a slot. The `props` argument is typed against the slot component's own prop type, so mismatched props are caught at compile time.
+
+---
+
+### `isSlotFilled`
+
+```typescript
+function isSlotFilled(
+  slots: Record<string, ReactNode | ReactNode[]>,
+  pattern: string | string[],
+  all?: boolean,
+): boolean
+```
+
+Checks whether a slot or group of slots has content. Handles both single slots (`null` check) and multiple slots (non-empty array check) transparently. Pass the `slots` object from the render function as the first argument.
+
+**`pattern`** — one of:
+- **Exact key** (`"Header.Title"`) — checks a single slot. `all` is ignored.
+- **Key array** (`["Header.Title", "Header.Action"]`) — checks an explicit set of slots.
+- **Wildcard** (`"Header*"`) — checks all slots whose key starts with the prefix before `*`.
+
+**`all`** *(optional, default `false`)* — when using a key array or wildcard:
+- `false` — returns `true` if **at least one** matching slot is filled
+- `true` — returns `true` only if **all** matching slots are filled
+
+```tsx
+import { isSlotFilled } from "@mikrostack/rst";
+
+.render(({ slots }) => {
+  const hasHeader = isSlotFilled(slots, "Header*");
+  const hasTitleOrActions = isSlotFilled(slots, ["Header.Title", "Header.Action"]);
+  const allHeadersFilled = isSlotFilled(slots, "Header*", true);
+
+  return (
+    <div>
+      {hasHeader && (
+        <header>
+          {hasTitleOrActions && (
+            <div className="title-row">
+              {slots["Header.Title"]}
+              {isSlotFilled(slots, "Header.Action") && (
+                <div className="actions">{slots["Header.Action"]}</div>
+              )}
+            </div>
+          )}
+          {slots["Header.Form"]}
+        </header>
+      )}
+    </div>
+  );
+})
 
 ---
 
@@ -877,6 +929,48 @@ const Layout = createComponentWithSlots({
     {footerGroup.render(slots)}
   </div>
 ));
+```
+
+---
+
+### Checking Slot Content with `isSlotFilled`
+
+Use `isSlotFilled` inside a render function to conditionally render wrapper elements around slots — avoiding empty containers when optional slots are unprovided.
+
+```tsx
+import { createComponentWithSlots, isSlotFilled } from "@mikrostack/rst";
+
+const Article = createComponentWithSlots({
+  "Header.Title": {},
+  "Header.Action": { multiple: true },
+  "Header.Form": {},
+  "Body.Content": { isRequired: true },
+}).render(({ slots }) => {
+  // true if any Header.* slot has content
+  const hasHeader = isSlotFilled(slots, "Header*");
+
+  // true if Title or at least one Action is filled
+  const hasTitleRow = isSlotFilled(slots, ["Header.Title", "Header.Action"]);
+
+  return (
+    <article>
+      {hasHeader && (
+        <header>
+          {hasTitleRow && (
+            <div className="title-row">
+              {slots["Header.Title"]}
+              {isSlotFilled(slots, "Header.Action") && (
+                <div className="actions">{slots["Header.Action"]}</div>
+              )}
+            </div>
+          )}
+          {slots["Header.Form"]}
+        </header>
+      )}
+      <div className="body">{slots["Body.Content"]}</div>
+    </article>
+  );
+});
 ```
 
 ---
