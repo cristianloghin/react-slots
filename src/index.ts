@@ -5,3 +5,4 @@ export { useSlotContext } from "./useSlotContext";
 export { prefixSlots } from "./prefixSlots";
 export { defineSlotGroup } from "./defineSlotGroup";
 export { isSlotFilled } from "./isSlotFilled";
+export { SlotContextStore } from "./SlotContextStore";
