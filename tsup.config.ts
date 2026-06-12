@@ -2,10 +2,12 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: ["src/index.ts"],
-  format: ["cjs", "esm"], // CommonJS and ES modules
-  dts: true, // Generate .d.ts files
+  format: ["cjs", "esm"],
+  dts: true,
   splitting: false,
   sourcemap: true,
-  clean: true, // Clean output directory before building,
+  clean: true,
   minify: true,
+  outDir: "dist",
+  treeshake: true,
 });

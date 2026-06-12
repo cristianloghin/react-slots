@@ -1,20 +1,38 @@
 {
   "name": "@mikrostack/rst",
+  "workspaces": [
+    "playground"
+  ],
   "version": "0.0.1",
+  "type": "module",
   "description": "React Slot-Based Component System",
   "repository": {
     "type": "git",
     "url": "https://github.com/cristianloghin/react-slots"
   },
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch"
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "author": "hi.cris.loghin@gmail.com",
   "license": "ISC",
@@ -23,10 +41,17 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.10.1",
-    "@types/react": "^18.0.0 || ^19.0.0",
-    "@types/react-dom": "^19.2.2",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@vitest/coverage-v8": "^4.1.5",
+    "happy-dom": "^20.9.0",
+    "jsdom": "^29.0.2",
     "tsup": "^8.5.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.5"
   }
 }
