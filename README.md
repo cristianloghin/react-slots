@@ -23,6 +23,7 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Dot-path Slot Keys](#dot-path-slot-keys)
   - [Reusable Slot Groups with `defineSlotGroup`](#reusable-slot-groups-with-defineslotgroup)
   - [Checking Slot Content with `isSlotFilled`](#checking-slot-content-with-isslotfilled)
+  - [Teleporting Content with Portal Slots](#teleporting-content-with-portal-slots)
 - [TypeScript Support](#typescript-support)
 - [Best Practices](#best-practices)
 - [Real-World Applications](#real-world-applications)
@@ -81,6 +82,7 @@ yarn add @mikrostack/rst
 - **`prefixSlots`**: Low-level helper that prefixes a slot config record — the primitive on which `defineSlotGroup` is built
 - **`defineSlotGroup`**: Encapsulates a group of related slots (config + render logic) into a reusable unit that can be spread into any parent slot config
 - **`isSlotFilled`**: Checks whether a slot has content — supports exact keys, key arrays, and wildcard prefix matching, with `all`/`some` semantics
+- **Portal slots (`portal: true`)**: A slot that can be filled from *anywhere* beneath the layout — including across a render boundary such as a React Router `<Outlet />` — using the same `<Layout.X>` call-site syntax. Content teleports to the slot's position via an external store, so updates re-render only the slot, never the heavy content around it
 
 ## API Reference
 
@@ -108,14 +110,16 @@ Define the component's render function with optional custom props.
 ```typescript
 // Without context
 render<T extends object = {}>(
-  render: (props: T & { slots: {...}; nonSlotChildren: ReactElement[] }) => ReactElement
+  render: (props: T & { slots: {...}; nonSlotChildren: ReactElement[]; portal: PortalHelper<S> }) => ReactElement
 ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S>
 
 // With context — render function also receives provideContext
 render<T extends object = {}>(
-  render: (props: T & { slots: {...}; nonSlotChildren: ReactElement[]; provideContext: (value: C) => void }) => ReactElement
+  render: (props: T & { slots: {...}; nonSlotChildren: ReactElement[]; provideContext: (value: C) => void; portal: PortalHelper<S> }) => ReactElement
 ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S> & ContextComponent<C>
 ```
+
+The render function always receives `portal`, a presence-aware boundary helper for portal slots — see [Teleporting Content with Portal Slots](#teleporting-content-with-portal-slots). It is a no-op for components that declare no `{ portal: true }` slots.
 
 **Type parameter `T`**: Custom component props (defaults to `{}` if omitted)
 
@@ -126,6 +130,7 @@ render<T extends object = {}>(
 - `isRequired`: If true, the slot must be provided
 - `multiple`: If true, multiple instances of the slot are collected in an array. Children without a `key` receive one automatically based on their index.
 - `defaultContent`: Default content to use if the slot is not provided
+- `portal`: If true, the slot is filled by `<Layout.X>` elements rendered anywhere beneath the layout — including across a render boundary like a React Router `<Outlet />` — rather than from the layout's direct children. See [Teleporting Content with Portal Slots](#teleporting-content-with-portal-slots).
 
 **`options.context`** *(optional)*: An object defining the shape and default values of the slot context. When provided, RST creates a scoped store for this component and makes `provideContext` available in the render function. The default values are used as the initial store state and as the fallback when `useSlotContext` is called outside a provider.
 
@@ -223,6 +228,7 @@ import { isSlotFilled } from "@mikrostack/rst";
     </div>
   );
 })
+```
 
 ---
 
@@ -975,6 +981,104 @@ const Article = createComponentWithSlots({
 
 ---
 
+### Teleporting Content with Portal Slots
+
+Regular slots are collected from the layout's **direct children** during its render. That makes them invisible across a render boundary: with React Router, a `<Layout>` whose body holds an `<Outlet />` never sees the routed component's elements as children — the routed component renders *below* the layout, in a separate subtree. A normal `<Layout.Header>` rendered inside that route would simply render inline, in the body, where it sits.
+
+A **portal slot** (`{ portal: true }`) closes that gap. Any `<Layout.X>` element mounted anywhere beneath the layout registers its content into a small external store, and the layout renders that content at the slot's position. The call-site syntax is identical to a regular slot — the `portal` flag is the only difference.
+
+```tsx
+import { createComponentWithSlots } from "@mikrostack/rst";
+import { Outlet } from "react-router-dom";
+
+const Layout = createComponentWithSlots({
+  Header: { portal: true },  // filled from across the Outlet boundary
+  Body: {},
+}).render(({ slots }) => (
+  <div className="layout">
+    <header>{slots.Header}</header>
+    <main>{slots.Body}</main>
+  </div>
+));
+
+// Mount once; the Body holds the router Outlet
+<Layout>
+  <Layout.Body>
+    <Outlet />
+  </Layout.Body>
+</Layout>
+
+// A routed component, rendered deep inside the Outlet, fills the Header
+function ProductsPage() {
+  const { data } = useProducts(); // its own state / queries
+  return (
+    <>
+      <Layout.Header>
+        <h1>Products ({data?.length ?? 0})</h1>
+      </Layout.Header>
+      <ProductGrid items={data} />
+    </>
+  );
+}
+```
+
+`ProductsPage` teleports its `<h1>` up into the layout's `<header>`, even though it renders below the layout in a different subtree. When the route changes, the old header unregisters and the new route's header takes its place.
+
+**Single vs. multiple:**
+- A single-value portal slot shows the **last** registrant to mount. A deeper component (e.g. a routed page) therefore overrides a shallower one.
+- A `{ portal: true, multiple: true }` slot renders **every** registrant — useful for action bars where several descendants contribute buttons.
+
+**Call-site default, route override:**
+
+Because a `<Layout.X>` provided at the layout's own call site mounts before the body, it acts as a **default** that content rendered deeper (such as a route) overrides. When that deeper registrant unmounts, the slot reverts to the default.
+
+```tsx
+<Layout>
+  <Layout.Header>
+    <DefaultHeader />   {/* shown until a route provides its own */}
+  </Layout.Header>
+  <Layout.Body>
+    <Outlet />
+  </Layout.Body>
+</Layout>
+```
+
+**Presence-aware chrome with `portal(name, render)`:**
+
+The render function receives a `portal` helper for the case where the layout needs to react to *whether* a slot is filled — e.g. to omit the surrounding `<header>` element entirely when no route contributes one. `portal(name, render)` returns a leaf that subscribes to the slot and calls `render` with its resolved content (`null` when empty):
+
+```tsx
+const Layout = createComponentWithSlots({
+  Header: { portal: true },
+  Body: {},
+}).render(({ slots, portal }) => (
+  <div className="layout">
+    {portal("Header", (content) =>
+      content ? <header className="chrome">{content}</header> : null
+    )}
+    <main>
+      <HeavyVideoPlayer />   {/* never re-renders on header changes */}
+      {slots.Body}
+    </main>
+  </div>
+));
+```
+
+The subscription lives entirely inside that leaf, so a header fill/unfill re-renders **only** the boundary — never the layout body or its siblings. Heavy, stateful content (videos, canvases, anything holding a ref) stays referentially stable without needing `React.memo`. `portal` is typed to accept only slot names declared with `{ portal: true }`.
+
+> Prefer `portal(name, render)` when you need presence-driven chrome; use plain `{slots.Header}` when the surrounding markup is always present. They share a single subscription per slot — don't nest `{slots.Header}` inside a `portal()` callback; use the `content` argument the callback already gives you.
+
+**Semantics and caveats:**
+- Portal content registers in a layout effect after commit, so it appears one frame after the registrant mounts — usually imperceptible. For content that must be present on first paint (e.g. SSR), use React Router's `handle` + `useMatches` instead, which is static route config rather than live content.
+- Registration is effect-based and therefore client-only; portal slots are empty during server rendering until hydration.
+- `isRequired` is not enforced on portal slots — their content arrives after render, so it can't be validated synchronously.
+- Each mounted layout instance has its own isolated portal stores; nested or sibling layouts never bleed into each other.
+- A portal element rendered with no matching layout above it logs an error in development and renders nothing.
+
+**When *not* to reach for it:** if the header only varies by route and needs no live data, React Router's `handle` + `useMatches` is simpler and SSR-safe. Portal slots earn their keep when the teleported content depends on the routed component's own state, data, or effects.
+
+---
+
 ## TypeScript Support
 
 The system provides full TypeScript support with excellent type inference:
@@ -1031,6 +1135,7 @@ const Modal = createComponentWithSlots({
 7. **Use `withProps` for static prop binding**: Prefer `withProps` over `injectSlotProps` when the bound values never change — it keeps the render function clean and makes the contract explicit at the config level
 8. **Use `injectSlotProps` for runtime props**: Use it when a slot component needs render-time data (a specific callback, an open flag) but only a single slot needs it — simpler than a full context
 9. **Use `useSlotContext` when multiple slots share state**: If two or more slot components need to read or drive the same parent state, declare it in `context` rather than threading props through `injectSlotProps` on each slot individually. Use the selector overload to keep re-renders granular.
+10. **Reach for portal slots only across render boundaries**: Use `{ portal: true }` when content must fill a slot from outside the layout's direct children — typically a React Router `<Outlet />`. For same-tree composition, a regular slot is simpler. When the header only depends on the route (not live data), prefer `handle` + `useMatches`.
 
 ## Real-World Applications
 

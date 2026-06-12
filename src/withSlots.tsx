@@ -2,25 +2,68 @@ import {
   Children,
   cloneElement,
   createContext,
+  Fragment,
   isValidElement,
   ReactElement,
   ReactNode,
   useCallback,
+  useContext,
   useLayoutEffect,
   useRef,
+  useSyncExternalStore,
 } from "react";
 import {
   ComponentBuilder,
   ComponentBuilderWithContext,
   ContextComponent,
   ExtractSlotComponents,
+  PortalHelper,
   RenderedSlots,
   Slot,
   SlotConfig,
 } from "./types";
 import { SlotContextStore } from "./SlotContextStore";
+import { SlotPortalStore } from "./SlotPortalStore";
 
 const SLOT_KEY = Symbol("rst-slot");
+
+// Monotonic id source for portal registrants. Each mounted `<Layout.X>` portal
+// element claims one id for the lifetime of the mount, used as its store key.
+let nextPortalId = 0;
+
+/**
+ * The single subscribing leaf for a portal slot — used both at the slot's
+ * position (`slots.X`) and by the presence-aware `portal()` helper. It subscribes
+ * to the per-instance store and resolves the registered nodes to one renderable
+ * value: `null` when empty, every node for a `multiple` slot, otherwise the last
+ * registrant (which therefore wins). When `render` is given it receives that
+ * value — pass `null`/content through to gate surrounding chrome on presence.
+ *
+ * Because the subscription lives here and not in the layout body, only this node
+ * re-renders on fill/unfill; heavy sibling content in the layout stays stable.
+ */
+function PortalConsumer({
+  store,
+  multiple,
+  render,
+}: {
+  store: SlotPortalStore;
+  multiple?: boolean;
+  render?: (content: ReactNode) => ReactNode;
+}): ReactElement {
+  const nodes = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
+  );
+  const content: ReactNode =
+    nodes.length === 0
+      ? null
+      : multiple
+        ? nodes.map((node, i) => <Fragment key={i}>{node}</Fragment>)
+        : nodes[nodes.length - 1];
+  return <>{render ? render(content) : content}</>;
+}
 
 /**
  * Creates a component builder with a slot-based composition pattern.
@@ -65,12 +108,78 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
 ): ComponentBuilder<S> | ComponentBuilderWithContext<S, C> {
   type SlotName = keyof S;
 
+  const hasPortals = (Object.keys(slotsConfig) as Array<SlotName>).some(
+    (key) => slotsConfig[key].portal,
+  );
+
+  // Carries the per-instance portal stores (one per portal slot) down to portal
+  // registrants, which may live arbitrarily deep — e.g. inside an <Outlet />.
+  // Keyed by the full slot name (including dot-paths).
+  const PortalContext = hasPortals
+    ? createContext<Record<string, SlotPortalStore> | null>(null)
+    : null;
+
   // Each slot gets a unique per-instance Symbol so two slots sharing the same
   // component type can still be distinguished during child collection.
   const slotComponents = {} as Record<SlotName, Slot<any>>;
   (Object.keys(slotsConfig) as Array<SlotName>).forEach((slotKey) => {
     const config = slotsConfig[slotKey];
     const slotSymbol = Symbol(String(slotKey));
+
+    if (config.portal && PortalContext) {
+      // A portal slot wrapper renders nothing at its own location; on mount it
+      // registers its content into the store for this slot, and removes it on
+      // unmount. The layout shows the content via <PortalOutlet> at the slot's
+      // position. Re-running the effect every render keeps the registered node
+      // in sync when the registrant re-renders with new content.
+      const Base = config.component as any;
+      const PortalSlot: Slot<any> = ({ children, asChild, ...userProps }: any) => {
+        const stores = useContext(PortalContext);
+        const store = stores ? stores[String(slotKey)] : undefined;
+
+        const idRef = useRef<string | null>(null);
+        if (idRef.current === null) idRef.current = `rst-portal-${nextPortalId++}`;
+
+        let node: ReactNode;
+        if (asChild) {
+          if (!isValidElement(children)) {
+            if (process.env.NODE_ENV !== "production") {
+              console.error(
+                `[rst] Portal slot "${String(slotKey)}" with asChild={true} must receive exactly one React element as its child.`,
+              );
+            }
+            node = null;
+          } else {
+            node = children;
+          }
+        } else if (Base) {
+          node = <Base {...userProps}>{children}</Base>;
+        } else {
+          node = children;
+        }
+
+        useLayoutEffect(() => {
+          if (!store) {
+            if (process.env.NODE_ENV !== "production") {
+              console.error(
+                `[rst] Portal slot "${String(slotKey)}" was rendered outside its layout; content was dropped.`,
+              );
+            }
+            return;
+          }
+          const id = idRef.current as string;
+          store.register(id, node);
+          return () => store.unregister(id);
+        });
+
+        return null;
+      };
+
+      if (Base) Object.assign(PortalSlot, Base);
+      (PortalSlot as any)[SLOT_KEY] = slotSymbol;
+      slotComponents[slotKey] = PortalSlot;
+      return;
+    }
 
     let wrapper: Slot<any>;
     if (config.component) {
@@ -111,6 +220,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
           slots: RenderedSlots<S>;
           nonSlotChildren: ReactElement[];
           provideContext: (value: C) => void;
+          portal: PortalHelper<S>;
         },
       ) => ReactElement,
     ) => {
@@ -125,6 +235,17 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
           storeRef.current = new SlotContextStore<C>(contextDefaults);
         }
 
+        // Per-instance portal stores, one per portal slot. Lazily created so each
+        // mounted layout teleports content into its own slots, not a shared global.
+        const portalStoresRef = useRef<Record<string, SlotPortalStore> | null>(null);
+        if (portalStoresRef.current === null && hasPortals) {
+          const stores: Record<string, SlotPortalStore> = {};
+          (Object.keys(slotsConfig) as Array<SlotName>).forEach((key) => {
+            if (slotsConfig[key].portal) stores[String(key)] = new SlotPortalStore();
+          });
+          portalStoresRef.current = stores;
+        }
+
         // provideContext captures the value during render; the layout effect
         // pushes it to the store after the commit so store.set is never called
         // during a React render pass.
@@ -132,6 +253,33 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
         const provideContext = useCallback((value: C) => {
           pendingContextRef.current = value;
         }, []);
+
+        // Presence-aware boundary for a portal slot. Reads the stable store from
+        // the ref and returns the same leaf used at the slot position, so the
+        // layout body (and any heavy content in it) is never re-rendered on
+        // fill/unfill. `render` receives the resolved content (null when empty),
+        // so a single subscription serves both presence and content.
+        const portal = useCallback(
+          (name: string, render: (content: ReactNode) => ReactNode) => {
+            const store = portalStoresRef.current?.[name];
+            if (!store) {
+              if (process.env.NODE_ENV !== "production") {
+                console.error(
+                  `[rst] portal("${name}", …) was called for a slot that is not configured with { portal: true }.`,
+                );
+              }
+              return null;
+            }
+            return (
+              <PortalConsumer
+                store={store}
+                multiple={slotsConfig[name as SlotName]?.multiple}
+                render={render}
+              />
+            );
+          },
+          [],
+        );
 
         useLayoutEffect(() => {
           if (storeRef.current !== null && pendingContextRef.current !== null) {
@@ -144,6 +292,10 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
           [K in SlotName]: ReactElement[] | ReactElement | null;
         };
         const nonSlotChildren: ReactElement[] = [];
+        // Portal-slot elements provided at the layout's own call site. They are
+        // mounted (invisibly) inside the portal provider so their registration
+        // effects run, just like portal elements rendered deeper in the tree.
+        const portalRegistrars: ReactElement[] = [];
 
         (Object.keys(slotsConfig) as Array<SlotName>).forEach((slotKey) => {
           const config = slotsConfig[slotKey];
@@ -170,6 +322,15 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
             if (slotEntry) {
               const [slotName] = slotEntry;
               const config = slotsConfig[slotName];
+
+              // Portal slot: don't collect into slotElements. Render the element
+              // as-is so its wrapper's registration effect runs (it returns null).
+              if (config.portal) {
+                portalRegistrars.push(
+                  child.key != null ? child : cloneElement(child, { key: index }),
+                );
+                return;
+              }
 
               // asChild: dissolve the slot wrapper and use its child directly.
               let effectiveChild: ReactElement = child;
@@ -216,6 +377,8 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
           .filter((key) => {
             const config = slotsConfig[key];
             if (!config.isRequired) return false;
+            // Portal content arrives after commit, so it can't be validated here.
+            if (config.portal) return false;
             const slotContent = slotElements[key];
             if (config.multiple) {
               return (slotContent as ReactElement[]).length === 0;
@@ -235,7 +398,18 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
 
         const typeSafeSlots = {} as RenderedSlots<S>;
         (Object.keys(slotsConfig) as Array<SlotName>).forEach((key) => {
-          typeSafeSlots[key] = slotElements[key] as any;
+          const config = slotsConfig[key];
+          if (config.portal && portalStoresRef.current) {
+            // The slot's position renders live, teleported content via the store.
+            typeSafeSlots[key] = (
+              <PortalConsumer
+                store={portalStoresRef.current[String(key)]}
+                multiple={config.multiple}
+              />
+            ) as any;
+          } else {
+            typeSafeSlots[key] = slotElements[key] as any;
+          }
         });
 
         const renderResult = renderFn({
@@ -243,16 +417,33 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
           slots: typeSafeSlots,
           nonSlotChildren,
           provideContext,
+          portal,
         } as any);
+
+        // Compose the providers from the inside out: portal provider first so the
+        // registrars and any deeper portal elements can resolve their stores.
+        let output: ReactElement = <>{renderResult}</>;
+
+        if (PortalContext !== null && portalStoresRef.current !== null) {
+          // Registrars first: their layout effects run before the body's, so a
+          // portal element provided at the call site acts as a default that
+          // content mounted deeper (e.g. a routed page) overrides.
+          output = (
+            <PortalContext.Provider value={portalStoresRef.current}>
+              {portalRegistrars}
+              {renderResult}
+            </PortalContext.Provider>
+          );
+        }
 
         if (StoreContext !== null && storeRef.current !== null) {
           return (
             <StoreContext.Provider value={storeRef.current}>
-              {renderResult}
+              {output}
             </StoreContext.Provider>
           );
         }
-        return <>{renderResult}</>;
+        return output;
       };
 
       Object.entries(slotComponents).forEach(([key, slot]) => {

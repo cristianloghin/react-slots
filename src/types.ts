@@ -21,6 +21,14 @@ export interface SlotConfig<T = any> {
   isRequired?: boolean;
   multiple?: boolean;
   defaultContent?: ReactNode;
+  /**
+   * Marks the slot as a portal (teleport) target. A portal slot is not collected
+   * from the layout's direct children; instead, any `<Layout.X>` element mounted
+   * anywhere beneath the layout — including across render boundaries such as a
+   * React Router `<Outlet />` — registers its content, which the layout renders
+   * at the slot's position. The call-site syntax is identical to a regular slot.
+   */
+  portal?: boolean;
 }
 
 // ─── Dot-path utilities ───────────────────────────────────────────────────────
@@ -92,6 +100,28 @@ export type PrefixedConfig<Prefix extends string, S extends Record<string, SlotC
   [K in keyof S as `${Prefix}.${K & string}`]: S[K];
 };
 
+// ─── Portal slot types ────────────────────────────────────────────────────────
+
+/**
+ * The names of slots configured with `{ portal: true }`. Used to constrain the
+ * `portal(name, …)` render helper to slots that actually have a portal store.
+ */
+export type PortalSlotNames<S extends Record<string, SlotConfig>> = {
+  [K in keyof S]: S[K] extends { portal: true } ? K : never;
+}[keyof S] & string;
+
+/**
+ * Presence-aware boundary helper passed into the render function. Returns a leaf
+ * element that subscribes to the named portal slot and calls `render` with its
+ * resolved content (`null` when empty), letting you gate surrounding chrome on
+ * presence — e.g. `portal('Header', c => c && <header>{c}</header>)`. Only that
+ * leaf re-renders on fill/unfill, so the rest of the layout stays stable.
+ */
+export type PortalHelper<S extends Record<string, SlotConfig>> = (
+  name: PortalSlotNames<S>,
+  render: (content: ReactNode) => ReactNode,
+) => ReactElement | null;
+
 // ─── Context types ────────────────────────────────────────────────────────────
 
 /**
@@ -115,6 +145,7 @@ export interface ComponentBuilderWithContext<S extends Record<string, SlotConfig
         slots: RenderedSlots<S>;
         nonSlotChildren: ReactElement[];
         provideContext: (value: C) => void;
+        portal: PortalHelper<S>;
       },
     ) => ReactElement,
   ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S> & ContextComponent<C>;
@@ -143,6 +174,7 @@ export interface ComponentBuilder<S extends Record<string, SlotConfig>> {
       props: T & {
         slots: RenderedSlots<S>;
         nonSlotChildren: ReactElement[];
+        portal: PortalHelper<S>;
       },
     ) => ReactElement,
   ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S>;
