@@ -12,6 +12,9 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
+import { SlotContextStore } from "./SlotContextStore";
+import { SlotPortalStore } from "./SlotPortalStore";
+import { assertSafeSlotPath } from "./slotPath";
 import {
   ComponentBuilder,
   ComponentBuilderWithContext,
@@ -22,14 +25,57 @@ import {
   Slot,
   SlotConfig,
 } from "./types";
-import { SlotContextStore } from "./SlotContextStore";
-import { SlotPortalStore } from "./SlotPortalStore";
 
 const SLOT_KEY = Symbol("rst-slot");
 
 // Monotonic id source for portal registrants. Each mounted `<Layout.X>` portal
 // element claims one id for the lifetime of the mount, used as its store key.
 let nextPortalId = 0;
+
+function copyEnumerableStatics(target: object, source: object): void {
+  for (const key of Reflect.ownKeys(source)) {
+    const descriptor = Object.getOwnPropertyDescriptor(source, key);
+    if (descriptor?.enumerable) Object.defineProperty(target, key, descriptor);
+  }
+}
+
+function defineSlotAccessor(
+  target: object,
+  path: string,
+  slot: Slot<any>,
+): void {
+  const parts = path.split(".");
+  let node = target as Record<string, unknown>;
+
+  for (const part of parts.slice(0, -1)) {
+    if (!Object.prototype.hasOwnProperty.call(node, part)) {
+      Object.defineProperty(node, part, {
+        value: Object.create(null),
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    }
+
+    const next = node[part];
+    if (
+      next === null ||
+      (typeof next !== "object" && typeof next !== "function")
+    ) {
+      throw new TypeError(
+        `[rst] Invalid slot path "${path}": segment "${part}" cannot contain nested slots.`,
+      );
+    }
+    node = next as Record<string, unknown>;
+  }
+
+  Object.defineProperty(node, parts[parts.length - 1], {
+    value: slot,
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  });
+}
 
 /**
  * The single subscribing leaf for a portal slot — used both at the slot's
@@ -97,16 +143,23 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
   slotsConfig: S,
 ): ComponentBuilder<S>;
 
-export function createComponentWithSlots<S extends Record<string, SlotConfig>, C extends object>(
-  slotsConfig: S,
-  options: { context: C },
-): ComponentBuilderWithContext<S, C>;
+export function createComponentWithSlots<
+  S extends Record<string, SlotConfig>,
+  C extends object,
+>(slotsConfig: S, options: { context: C }): ComponentBuilderWithContext<S, C>;
 
-export function createComponentWithSlots<S extends Record<string, SlotConfig>, C extends object>(
+export function createComponentWithSlots<
+  S extends Record<string, SlotConfig>,
+  C extends object,
+>(
   slotsConfig: S,
   options?: { context: C },
 ): ComponentBuilder<S> | ComponentBuilderWithContext<S, C> {
   type SlotName = keyof S;
+
+  (Object.keys(slotsConfig) as Array<SlotName>).forEach((key) => {
+    assertSafeSlotPath(String(key));
+  });
 
   const hasPortals = (Object.keys(slotsConfig) as Array<SlotName>).some(
     (key) => slotsConfig[key].portal,
@@ -121,7 +174,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
 
   // Each slot gets a unique per-instance Symbol so two slots sharing the same
   // component type can still be distinguished during child collection.
-  const slotComponents = {} as Record<SlotName, Slot<any>>;
+  const slotComponents = Object.create(null) as Record<SlotName, Slot<any>>;
   (Object.keys(slotsConfig) as Array<SlotName>).forEach((slotKey) => {
     const config = slotsConfig[slotKey];
     const slotSymbol = Symbol(String(slotKey));
@@ -133,12 +186,17 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
       // position. Re-running the effect every render keeps the registered node
       // in sync when the registrant re-renders with new content.
       const Base = config.component as any;
-      const PortalSlot: Slot<any> = ({ children, asChild, ...userProps }: any) => {
+      const PortalSlot: Slot<any> = ({
+        children,
+        asChild,
+        ...userProps
+      }: any) => {
         const stores = useContext(PortalContext);
         const store = stores ? stores[String(slotKey)] : undefined;
 
         const idRef = useRef<string | null>(null);
-        if (idRef.current === null) idRef.current = `rst-portal-${nextPortalId++}`;
+        if (idRef.current === null)
+          idRef.current = `rst-portal-${nextPortalId++}`;
 
         let node: ReactNode;
         if (asChild) {
@@ -175,7 +233,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
         return null;
       };
 
-      if (Base) Object.assign(PortalSlot, Base);
+      if (Base) copyEnumerableStatics(PortalSlot, Base);
       (PortalSlot as any)[SLOT_KEY] = slotSymbol;
       slotComponents[slotKey] = PortalSlot;
       return;
@@ -187,17 +245,19 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
       // Strip asChild before forwarding — it is consumed during child collection
       // and must not leak through to the underlying component.
       wrapper = ({ children, asChild: _, ...userProps }: any) => (
-        <Base {...userProps}>
-          {children}
-        </Base>
+        <Base {...userProps}>{children}</Base>
       );
       // Copy static properties (e.g. nested slot components) so that
       // Parent.SlottedChild.NestedSlot resolves correctly at runtime.
-      Object.assign(wrapper, Base);
+      copyEnumerableStatics(wrapper, Base);
     } else {
-      wrapper = ({ children, asChild: _ }: { children?: ReactNode; asChild?: boolean }) => (
-        <>{children}</>
-      );
+      wrapper = ({
+        children,
+        asChild: _,
+      }: {
+        children?: ReactNode;
+        asChild?: boolean;
+      }) => <>{children}</>;
     }
 
     (wrapper as any)[SLOT_KEY] = slotSymbol;
@@ -209,9 +269,12 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
   // across all instances. Each instance provides its own store via the Provider.
   // The default value (used when no Provider is in the tree) is a store initialised
   // with the declared defaults, so useSlotContext never returns undefined.
-  const StoreContext = contextDefaults !== undefined
-    ? createContext<SlotContextStore<C>>(new SlotContextStore<C>(contextDefaults))
-    : null;
+  const StoreContext =
+    contextDefaults !== undefined
+      ? createContext<SlotContextStore<C>>(
+          new SlotContextStore<C>(contextDefaults),
+        )
+      : null;
 
   return {
     render: <T extends object = {}>(
@@ -237,11 +300,14 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
 
         // Per-instance portal stores, one per portal slot. Lazily created so each
         // mounted layout teleports content into its own slots, not a shared global.
-        const portalStoresRef = useRef<Record<string, SlotPortalStore> | null>(null);
+        const portalStoresRef = useRef<Record<string, SlotPortalStore> | null>(
+          null,
+        );
         if (portalStoresRef.current === null && hasPortals) {
-          const stores: Record<string, SlotPortalStore> = {};
+          const stores = Object.create(null) as Record<string, SlotPortalStore>;
           (Object.keys(slotsConfig) as Array<SlotName>).forEach((key) => {
-            if (slotsConfig[key].portal) stores[String(key)] = new SlotPortalStore();
+            if (slotsConfig[key].portal)
+              stores[String(key)] = new SlotPortalStore();
           });
           portalStoresRef.current = stores;
         }
@@ -288,7 +354,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
           }
         });
 
-        const slotElements = {} as {
+        const slotElements = Object.create(null) as {
           [K in SlotName]: ReactElement[] | ReactElement | null;
         };
         const nonSlotChildren: ReactElement[] = [];
@@ -327,7 +393,9 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
               // as-is so its wrapper's registration effect runs (it returns null).
               if (config.portal) {
                 portalRegistrars.push(
-                  child.key != null ? child : cloneElement(child, { key: index }),
+                  child.key != null
+                    ? child
+                    : cloneElement(child, { key: index }),
                 );
                 return;
               }
@@ -351,7 +419,9 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
                 // Assign an index-based key when the consumer omits one to
                 // avoid React's missing-key warning.
                 (slotElements[slotName] as ReactElement[]).push(
-                  effectiveChild.key != null ? effectiveChild : cloneElement(effectiveChild, { key: index }),
+                  effectiveChild.key != null
+                    ? effectiveChild
+                    : cloneElement(effectiveChild, { key: index }),
                 );
               } else {
                 if (
@@ -373,7 +443,9 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
           }
         });
 
-        const missingRequiredSlots = (Object.keys(slotsConfig) as Array<SlotName>)
+        const missingRequiredSlots = (
+          Object.keys(slotsConfig) as Array<SlotName>
+        )
           .filter((key) => {
             const config = slotsConfig[key];
             if (!config.isRequired) return false;
@@ -396,7 +468,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
           );
         }
 
-        const typeSafeSlots = {} as RenderedSlots<S>;
+        const typeSafeSlots = Object.create(null) as RenderedSlots<S>;
         (Object.keys(slotsConfig) as Array<SlotName>).forEach((key) => {
           const config = slotsConfig[key];
           if (config.portal && portalStoresRef.current) {
@@ -447,18 +519,7 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>, C
       };
 
       Object.entries(slotComponents).forEach(([key, slot]) => {
-        const parts = key.split(".");
-        if (parts.length === 1) {
-          (Component as any)[key] = slot;
-        } else {
-          // Dot-path key: "Header.Title" → Component.Header.Title
-          let node = Component as any;
-          for (let i = 0; i < parts.length - 1; i++) {
-            if (!node[parts[i]]) node[parts[i]] = {};
-            node = node[parts[i]];
-          }
-          node[parts[parts.length - 1]] = slot;
-        }
+        defineSlotAccessor(Component, key, slot);
       });
 
       if (StoreContext !== null) {

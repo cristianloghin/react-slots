@@ -1,3 +1,4 @@
+import { assertSafeSlotPath } from "./slotPath";
 import type { PrefixedConfig, SlotConfig } from "./types";
 
 /**
@@ -10,13 +11,15 @@ import type { PrefixedConfig, SlotConfig } from "./types";
  * // → { "Header.Title": {}, "Header.Actions": { multiple: true } }
  * ```
  */
-export function prefixSlots<Prefix extends string, S extends Record<string, SlotConfig>>(
-  prefix: Prefix,
-  config: S,
-): PrefixedConfig<Prefix, S> {
-  const result: Record<string, SlotConfig> = {};
+export function prefixSlots<
+  Prefix extends string,
+  S extends Record<string, SlotConfig>,
+>(prefix: Prefix, config: S): PrefixedConfig<Prefix, S> {
+  const result = Object.create(null) as Record<string, SlotConfig>;
   for (const key of Object.keys(config)) {
-    result[`${prefix}.${key}`] = config[key];
+    const path = `${prefix}.${key}`;
+    assertSafeSlotPath(path);
+    result[path] = config[key];
   }
   return result as PrefixedConfig<Prefix, S>;
 }

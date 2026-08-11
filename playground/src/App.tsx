@@ -6,6 +6,7 @@ import {
 import React, { useState } from "react";
 import { AsChild } from "./sections/AsChild";
 import { BasicSection } from "./sections/Basic";
+import { PortalRouter } from "./sections/PortalRouter";
 import { TagListSection } from "./sections/TagList";
 import { WithProps } from "./sections/WithProps";
 import "./styles.css";
@@ -179,6 +180,7 @@ export default function App() {
   return (
     <div className="app">
       <h2>RST Playground</h2>
+      <PortalRouter />
       <BasicSection />
       <AsChild />
       <WithProps />
