@@ -12,6 +12,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
+import { isSlotContext, SlotContext } from "./createSlotContext";
 import { SlotContextStore } from "./SlotContextStore";
 import { SlotPortalStore } from "./SlotPortalStore";
 import { assertSafeSlotPath } from "./slotPath";
@@ -115,9 +116,14 @@ function PortalConsumer({
  * Creates a component builder with a slot-based composition pattern.
  *
  * @param slotsConfig - Slot name → config map
- * @param options.context - Optional context shape with default values. When provided,
- *   the render function receives `provideContext` and the returned component can be
- *   passed to `useSlotContext` to read context values from within slot components.
+ * @param options.context - Optional context shape with default values, or a
+ *   standalone context created by `createSlotContext`. When provided, the render
+ *   function receives `provideContext` and the returned component can be passed
+ *   to `useSlotContext` to read context values from within slot components.
+ *   Prefer the `createSlotContext` form when slot components live in their own
+ *   modules: they consume the context object instead of importing the layout,
+ *   which would be an import cycle (the slot config reads component bindings
+ *   eagerly at module evaluation).
  * @returns A builder with a `render<T>()` method
  *
  * @example
@@ -146,6 +152,14 @@ export function createComponentWithSlots<S extends Record<string, SlotConfig>>(
 export function createComponentWithSlots<
   S extends Record<string, SlotConfig>,
   C extends object,
+>(
+  slotsConfig: S,
+  options: { context: SlotContext<C> },
+): ComponentBuilderWithContext<S, C>;
+
+export function createComponentWithSlots<
+  S extends Record<string, SlotConfig>,
+  C extends object,
 >(slotsConfig: S, options: { context: C }): ComponentBuilderWithContext<S, C>;
 
 export function createComponentWithSlots<
@@ -153,7 +167,7 @@ export function createComponentWithSlots<
   C extends object,
 >(
   slotsConfig: S,
-  options?: { context: C },
+  options?: { context: C | SlotContext<C> },
 ): ComponentBuilder<S> | ComponentBuilderWithContext<S, C> {
   type SlotName = keyof S;
 
@@ -264,17 +278,28 @@ export function createComponentWithSlots<
     slotComponents[slotKey] = wrapper;
   });
 
-  const contextDefaults = options?.context;
-  // The context object is created once per createComponentWithSlots call and shared
-  // across all instances. Each instance provides its own store via the Provider.
-  // The default value (used when no Provider is in the tree) is a store initialised
+  // The context option is either a plain defaults object or a standalone
+  // context from createSlotContext (detected by its brand). Either way, each
+  // mounted instance provides its own store via the Provider; the context's
+  // default value (used when no Provider is in the tree) is a store initialised
   // with the declared defaults, so useSlotContext never returns undefined.
-  const StoreContext =
-    contextDefaults !== undefined
-      ? createContext<SlotContextStore<C>>(
-          new SlotContextStore<C>(contextDefaults),
-        )
+  const contextOption = options?.context;
+  const sharedContext =
+    contextOption !== undefined && isSlotContext(contextOption)
+      ? (contextOption as SlotContext<C>)
       : null;
+  const contextDefaults =
+    sharedContext !== null
+      ? sharedContext.__defaults
+      : (contextOption as C | undefined);
+  const StoreContext =
+    sharedContext !== null
+      ? sharedContext.__storeContext
+      : contextDefaults !== undefined
+        ? createContext<SlotContextStore<C>>(
+            new SlotContextStore<C>(contextDefaults),
+          )
+        : null;
 
   return {
     render: <T extends object = {}>(
