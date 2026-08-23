@@ -20,6 +20,7 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Static Prop Binding with `withProps`](#static-prop-binding-with-withprops)
   - [Remote Slot Ownership with `asChild`](#remote-slot-ownership-with-aschild)
   - [Typed Slot Context with `useSlotContext`](#typed-slot-context-with-useslotcontext)
+  - [Decoupled Context Modules with `createSlotContext`](#decoupled-context-modules-with-createslotcontext)
   - [Dot-path Slot Keys](#dot-path-slot-keys)
   - [Reusable Slot Groups with `defineSlotGroup`](#reusable-slot-groups-with-defineslotgroup)
   - [Checking Slot Content with `isSlotFilled`](#checking-slot-content-with-isslotfilled)
@@ -94,10 +95,10 @@ function createComponentWithSlots<S extends Record<string, SlotConfig>>(
   slotsConfig: S
 ): ComponentBuilder<S>
 
-// With context
+// With context — plain defaults object, or a standalone context
 function createComponentWithSlots<S extends Record<string, SlotConfig>, C extends object>(
   slotsConfig: S,
-  options: { context: C }
+  options: { context: C | SlotContext<C> }
 ): ComponentBuilderWithContext<S, C>
 ```
 
@@ -132,7 +133,7 @@ The render function always receives `portal`, a presence-aware boundary helper f
 - `defaultContent`: Default content to use if the slot is not provided
 - `portal`: If true, the slot is filled by `<Layout.X>` elements rendered anywhere beneath the layout — including across a render boundary like a React Router `<Outlet />` — rather than from the layout's direct children. See [Teleporting Content with Portal Slots](#teleporting-content-with-portal-slots).
 
-**`options.context`** *(optional)*: An object defining the shape and default values of the slot context. When provided, RST creates a scoped store for this component and makes `provideContext` available in the render function. The default values are used as the initial store state and as the fallback when `useSlotContext` is called outside a provider.
+**`options.context`** *(optional)*: An object defining the shape and default values of the slot context, or a standalone context created by [`createSlotContext`](#createslotcontext). When provided, RST creates a scoped store for this component and makes `provideContext` available in the render function. The default values are used as the initial store state and as the fallback when `useSlotContext` is called outside a provider. Prefer the `createSlotContext` form when slot components live in their own modules — see [Decoupled Context Modules with `createSlotContext`](#decoupled-context-modules-with-createslotcontext).
 
 **`render`**: Function that renders the component using the organized slots. When context is configured, also receives `provideContext` — call it with the current context values on every render.
 
@@ -232,6 +233,20 @@ import { isSlotFilled } from "@mikrostack/rst";
 
 ---
 
+### `createSlotContext`
+
+```typescript
+function createSlotContext<C extends object>(defaults: C): SlotContext<C>
+```
+
+Creates a standalone slot context that lives independently of the layout that provides it. Pass it to `createComponentWithSlots(config, { context })` in place of a plain defaults object, and consume it with `useSlotContext(theContext, …)`.
+
+Use this whenever a slot component lives in its own module. The layout's slot config reads component bindings eagerly at module evaluation, so a slot component importing its layout back (to call `useSlotContext(Layout, …)`) creates an import cycle that breaks bundler HMR. A standalone context is a leaf module both sides can import. See [Decoupled Context Modules with `createSlotContext`](#decoupled-context-modules-with-createslotcontext).
+
+**`defaults`**: The context shape and initial values — same semantics as the plain-object `context` option: used as each instance's initial store state, and as the fallback when `useSlotContext` is called outside a provider.
+
+---
+
 ### `useSlotContext`
 
 ```typescript
@@ -249,7 +264,7 @@ function useSlotContext<C extends object>(
 
 Reads a value from the typed slot context of a layout component. Must be called from inside a component that is rendered within the layout's slot tree.
 
-**`layout`**: The slotted component returned by `createComponentWithSlots(..., { context })`. Passing a component without a context option is a compile-time error.
+**`layout`**: The slotted component returned by `createComponentWithSlots(..., { context })`, or the `SlotContext` object the layout was configured with. Passing a component without a context option is a compile-time error.
 
 **`selector`** *(optional)*: A function that picks a specific value from the context shape. Re-renders the caller only when the selected value changes. Omit to subscribe to the full context object — the caller then re-renders on any context update.
 
@@ -829,6 +844,70 @@ createComponentWithSlots({ ... }, { context: { open: false, toggle: () => {} } }
   // ...
 });
 ```
+
+---
+
+### Decoupled Context Modules with `createSlotContext`
+
+`useSlotContext(Layout, …)` works when the consuming component is defined next to the layout. When a slot component lives in its own module, importing the layout back for the context handle creates an import cycle: the layout's slot config (`{ Header: { component: PanelHeader } }`) reads the component binding eagerly at module evaluation, while the component wants a reference to the layout. Cold loads survive because the context is only dereferenced at render time — but bundler HMR re-executes modules in an order that hits the half-initialized binding (`Cannot access 'PanelHeader' before initialization`), forcing full reloads or worse.
+
+`createSlotContext` removes the reason for the back-import. The context is created in a leaf module both sides import:
+
+```tsx
+// panelContext.ts — leaf module, imports nothing from the layout
+import { createSlotContext } from "@mikrostack/rst";
+
+export const PanelContext = createSlotContext({
+  open: false,
+  toggle: () => {},
+});
+```
+
+```tsx
+// PanelHeader.tsx — imports the context, never the layout
+import { useSlotContext } from "@mikrostack/rst";
+import { PanelContext } from "./panelContext";
+
+export function PanelHeader({ children }: PropsWithChildren) {
+  const { open, toggle } = useSlotContext(PanelContext);
+  return (
+    <header>
+      {children}
+      <button onClick={toggle}>{open ? "Collapse" : "Expand"}</button>
+    </header>
+  );
+}
+```
+
+```tsx
+// Panel.tsx — provides the shared context
+import { createComponentWithSlots } from "@mikrostack/rst";
+import { PanelContext } from "./panelContext";
+import { PanelHeader } from "./PanelHeader";
+
+export const Panel = createComponentWithSlots(
+  {
+    Header: { component: PanelHeader },
+    Body: {},
+  },
+  { context: PanelContext },
+).render(({ slots, provideContext }) => {
+  const [open, setOpen] = useState(false);
+  provideContext({ open, toggle: () => setOpen(o => !o) });
+  return (
+    <div className="panel">
+      {slots.Header}
+      {open && <div className="panel-body">{slots.Body}</div>}
+    </div>
+  );
+});
+```
+
+**Key points:**
+- The dependency graph is acyclic: `Panel → PanelHeader → panelContext`. No module imports `Panel` from inside the slot tree.
+- Everything else behaves exactly as with a plain defaults object: per-instance stores stay isolated, `provideContext` pushes after commit, and the declared defaults are the outside-provider fallback.
+- Both handles read the same store — `useSlotContext(Panel, …)` still works for callers that already import the layout naturally.
+- Layouts sharing one `SlotContext` share context *identity*: a consumer resolves the nearest providing instance, whichever layout it is. Reuse a context across layouts only when that is intended.
 
 ---
 

@@ -1,4 +1,6 @@
 export { createComponentWithSlots } from "./withSlots";
+export { createSlotContext } from "./createSlotContext";
+export type { SlotContext } from "./createSlotContext";
 export { injectSlotProps } from "./injectSlotProps";
 export { withProps } from "./withProps";
 export { useSlotContext } from "./useSlotContext";
