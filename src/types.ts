@@ -82,10 +82,21 @@ export type ExtractSlotComponents<S extends Record<string, SlotConfig>> =
  * Type utility: Determines the type of rendered slot content based on config.
  * The slots object in the render function is always keyed by the full dot-path
  * string (e.g. slots["Header.Title"]), never as a nested accessor.
+ *
+ * Portal slots resolve to a single live boundary element regardless of
+ * `multiple` — their content lives in a store, not in the collected elements —
+ * so they are typed as plain ReactNode. For collected slots the element type
+ * reflects the configured component's props, which lets helpers like
+ * `getSlotProps` infer the prop shape. Note that `asChild` dissolves the slot
+ * wrapper, so the collected element's actual props are then the child's own.
  */
 export type RenderedSlots<S extends Record<string, SlotConfig>> = {
-  [K in keyof S]: S[K] extends { multiple: true }
-    ? ReactNode[]
+  [K in keyof S]: S[K] extends { portal: true }
+    ? ReactNode
+    : S[K] extends { multiple: true }
+    ? S[K] extends { component: infer C }
+      ? ReactElement<ComponentPropsOf<C> & { asChild?: boolean }>[]
+      : ReactNode[]
     : S[K] extends { component: infer C }
     ? ReactElement<ComponentPropsOf<C> & { asChild?: boolean }> | null
     : ReactNode;
