@@ -17,6 +17,7 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Same Component for Multiple Slots](#same-component-for-multiple-slots)
   - [Nested Slot Components](#nested-slot-components)
   - [Injecting Runtime Props](#injecting-runtime-props)
+  - [Reading Slot Props with `getSlotProps`](#reading-slot-props-with-getslotprops)
   - [Static Prop Binding with `withProps`](#static-prop-binding-with-withprops)
   - [Remote Slot Ownership with `asChild`](#remote-slot-ownership-with-aschild)
   - [Typed Slot Context with `useSlotContext`](#typed-slot-context-with-useslotcontext)
@@ -75,7 +76,7 @@ yarn add @mikrostack/rst
 - **Non-Slot Children Handling**: Collect and handle non-matching children
 - **Flexible Rendering**: Full control over slot positioning and layout
 - **Same Component for Multiple Slots**: Two slots can share the same underlying component — RST uses per-slot Symbols for identity, not component reference
-- **`withProps`**: Bind static props to a component at definition time, removing them from the public slot surface
+- **`withProps`**: Bind static props to a component at definition time, making them optional on the public slot surface
 - **`asChild`**: Prop on any slot component that lets a remote component (with its own state and queries) fill the slot without co-location
 - **`injectSlotProps`**: Typed helper for passing render-function state into a slot without modifying the slots API
 - **`useSlotContext`**: Typed hook for slot components to consume parent render state without manually wiring React context outside the slot system
@@ -146,13 +147,13 @@ A React component with slot component functions attached as static properties. W
 ### `withProps`
 
 ```typescript
-function withProps<P extends object, B extends Partial<P>>(
+function withProps<P extends object, K extends keyof P>(
   Component: (props: P) => ReactNode,
-  boundProps: B,
-): (props: Omit<P, keyof B>) => ReactNode
+  boundProps: Pick<P, K>,
+): (props: Omit<P, K> & Partial<Pick<P, K>>) => ReactNode
 ```
 
-Returns a new component with `boundProps` pre-applied. The bound keys are removed from the returned component's prop surface — the type system correctly reflects what the consumer still needs to provide.
+Returns a new component with `boundProps` pre-applied. The bound keys become optional on the returned component's prop surface — the consumer no longer needs to provide them, but may still override them (including via `injectSlotProps` at the layout's render site).
 
 Bound props act as **defaults**: any prop the consumer passes directly on the slot element takes priority and overrides the bound value.
 
@@ -179,6 +180,39 @@ import { injectSlotProps } from "@mikrostack/rst";
 ```
 
 `injectSlotProps` is the only mechanism for passing runtime props to a slot. The `props` argument is typed against the slot component's own prop type, so mismatched props are caught at compile time.
+
+---
+
+### `getSlotProps`
+
+```typescript
+function getSlotProps<P, T>(
+  slot: ReactElement<P> | readonly ReactElement<P>[] | null | undefined,
+  select: (props: P) => T,
+): T[]
+```
+
+The read counterpart to `injectSlotProps`: selects a value from the props of every collected element in a slot. Works uniformly over single slots (`ReactElement | null`) and multiple slots (`ReactElement[]`), returning one selected value per element in collection order — an empty array when the slot is unfilled — so presence and value checks compose with ordinary array methods.
+
+```tsx
+import { getSlotProps } from "@mikrostack/rst";
+
+.render(({ slots }) => {
+  // Layout reacts to consumer-controlled slot state without owning it.
+  const isFormOpen = getSlotProps(slots.Form, (p) => p.open).some(Boolean);
+
+  return (
+    <header data-form-open={isFormOpen}>
+      {!isFormOpen && slots.Title}
+      {slots.Form}
+    </header>
+  );
+})
+```
+
+The selector runs during render, so the result always reflects the current committed props — reactivity is ordinary top-down prop flow, no subscription involved. When the slot has a configured component, `P` is inferred from it; for componentless slots, annotate the selector parameter (`(p: FormProps) => p.open`).
+
+Caveats: a slot used with `asChild` collects the dissolved child, whose props need not match the slot component's prop type; portal slots resolve to a live boundary element whose props are meaningless to read; `defaultContent` on a componentless slot is wrapped in a Fragment.
 
 ---
 
@@ -761,6 +795,40 @@ const Page = createComponentWithSlots({
 </Page>
 ```
 
+### Reading Slot Props with `getSlotProps`
+
+The inverse direction: the layout reads state the *consumer* controls through slot props, without owning it. A common case is consumer-controlled disclosure — the layout adapts its chrome to whether any slot is open:
+
+```tsx
+import { createComponentWithSlots, getSlotProps } from "@mikrostack/rst";
+
+function FormSlot({ open, children }: { open: boolean; children?: ReactNode }) {
+  return <div hidden={!open}>{children}</div>;
+}
+
+const Page = createComponentWithSlots({
+  Title: {},
+  Form: { component: FormSlot, multiple: true },
+}).render(({ slots }) => {
+  // Reactive: slot elements are re-collected every render, so the selector
+  // always sees the consumer's current props.
+  const isFormOpen = getSlotProps(slots.Form, (p) => p.open).some(Boolean);
+
+  return (
+    <header>
+      {!isFormOpen && slots.Title}
+      {slots.Form}
+    </header>
+  );
+});
+
+// Usage — the consumer keeps full control of the open state
+<Page>
+  <Page.Title>My page</Page.Title>
+  <Page.Form open={isEditing}>…</Page.Form>
+</Page>
+```
+
 ### Typed Slot Context with `useSlotContext`
 
 Slots that need to read or drive parent state — open/close flags, callbacks, orientation — can use `useSlotContext` instead of manually wiring a React context outside the slot system. The context shape is declared once in the config and is automatically typed at every call site.
@@ -1167,7 +1235,8 @@ The system provides full TypeScript support with excellent type inference:
 - Slot availability is enforced in the render function
 - Multiple slots are correctly typed as arrays
 - Required slots are enforced
-- Each `slots.X` is typed to `ReactElement<ComponentProps>` based on the slot's `component` — not `ReactElement<any>`
+- Each `slots.X` is typed to `ReactElement<ComponentProps>` based on the slot's `component` — not `ReactElement<any>`. This includes `multiple` slots, which are typed `ReactElement<ComponentProps>[]`, so element props are readable (see `getSlotProps`)
+- Portal slots are typed `ReactNode` regardless of `multiple` — their position renders a single live boundary element; the registered content lives in a store, not in collected elements
 - `injectSlotProps` infers its `props` argument from the element type, so mismatched props are caught at compile time
 
 Example of TypeScript inference:
@@ -1186,8 +1255,8 @@ const Modal = createComponentWithSlots({
 }).render<{ isOpen: boolean; onClose: () => void }>(
   // slots will have proper typing based on configuration:
   // - Title:   ReactElement<{ level: 1 | 2; children?: ReactNode }> | null
-  // - Body:    ReactElement<{ children?: ReactNode }> | null
-  // - Actions: ReactElement<{ children?: ReactNode }>[]  (because multiple: true)
+  // - Body:    ReactNode            (no component configured)
+  // - Actions: ReactNode[]          (multiple: true, no component configured)
   ({ slots, isOpen, onClose }) => {
     if (!isOpen) return null;
     return (
