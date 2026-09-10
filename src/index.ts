@@ -5,6 +5,7 @@ export type { LayoutComponent, RenderProps } from "./types";
 export { injectSlotProps } from "./injectSlotProps";
 export { getSlotProps } from "./getSlotProps";
 export { withProps } from "./withProps";
+export type { BoundComponent } from "./withProps";
 export { useSlotContext } from "./useSlotContext";
 export { prefixSlots } from "./prefixSlots";
 export { defineSlotGroup } from "./defineSlotGroup";
