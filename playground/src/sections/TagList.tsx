@@ -1,30 +1,25 @@
 // ─── TagList — multiple slot instances ───────────────────────────────────────
 
-import { createComponentWithSlots } from "@mikrostack/rst";
+import { createLayout, slot } from "@mikrostack/rst";
 
-const Badge = ({
-  label,
-  color = "#eee",
-}: {
-  label: string;
-  color?: string;
-}) => (
+const Badge = ({ label, color = "#eee" }: { label: string; color?: string }) => (
   <span className="badge" style={{ background: color }}>
     {label}
   </span>
 );
 
-const TagList = createComponentWithSlots({
-  Tag: { multiple: true },
-}).render(({ slots }) => <div className="tag-list">{slots.Tag}</div>);
+const TagList = createLayout(
+  { Tag: slot({ multiple: true }) },
+  (_, { slots }) => <div className="tag-list">{slots.Tag}</div>,
+);
 
 export function TagListSection() {
   return (
     <section>
       <h3>TagList — multiple slot instances</h3>
       <p className="hint">
-        No <code>key</code> props on the children — RST assigns index-based keys
-        automatically. Open the console to confirm no key warnings.
+        No <code>key</code> props on the fills — keys are assigned automatically. Open
+        the console to confirm there are no key warnings.
       </p>
       <TagList>
         <TagList.Tag>

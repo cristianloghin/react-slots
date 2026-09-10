@@ -1,13 +1,20 @@
-export { createComponentWithSlots } from "./withSlots";
+export { createLayout } from "./createLayout";
+export { slot } from "./slot";
 export { createSlotContext } from "./createSlotContext";
 export type { SlotContext } from "./createSlotContext";
-export type { LayoutComponent, RenderProps } from "./types";
-export { injectSlotProps } from "./injectSlotProps";
-export { getSlotProps } from "./getSlotProps";
-export { withProps } from "./withProps";
-export type { BoundComponent } from "./withProps";
 export { useSlotContext } from "./useSlotContext";
-export { prefixSlots } from "./prefixSlots";
-export { defineSlotGroup } from "./defineSlotGroup";
-export { isSlotFilled } from "./isSlotFilled";
-export { SlotContextStore } from "./SlotContextStore";
+export type {
+  Accessors,
+  Fill,
+  FillProps,
+  GroupHandle,
+  Layout,
+  LayoutApi,
+  LayoutApiWithContext,
+  MultiHandle,
+  PortalHandle,
+  SingleHandle,
+  SlotDef,
+  SlotOptions,
+  SlotTree,
+} from "./types";

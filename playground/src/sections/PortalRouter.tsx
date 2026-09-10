@@ -1,27 +1,19 @@
-import { createComponentWithSlots } from "@mikrostack/rst";
+import { createLayout, slot } from "@mikrostack/rst";
 import { useState } from "react";
-import {
-  Link,
-  MemoryRouter,
-  Outlet,
-  Route,
-  Routes,
-} from "react-router-dom";
+import { Link, MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 
 // Layout with a PORTAL Header slot and a regular Body that holds the Outlet.
-const Layout = createComponentWithSlots({
-  Header: { portal: true },
-  Body: {},
-}).render(({ slots, portal }) => (
-  <div className="card">
-    <div className="card__header">
-      {portal("Header", (content) =>
-        content ? content : <em>— no header from route —</em>,
-      )}
+const Layout = createLayout(
+  { Header: slot({ portal: true }), Body: slot() },
+  (_, { slots }) => (
+    <div className="card">
+      <div className="card__header">
+        {slots.Header.when((content) => content ?? <em>— no header from route —</em>)}
+      </div>
+      <div className="card__body">{slots.Body}</div>
     </div>
-    <div className="card__body">{slots.Body}</div>
-  </div>
-));
+  ),
+);
 
 // A routed page that teleports its own live state into the Layout Header.
 function ProductsPage() {
@@ -69,10 +61,10 @@ export function PortalRouter() {
     <section>
       <h3>Portal slot — header teleported across an Outlet boundary</h3>
       <p className="hint">
-        The <code>Header</code> slot is <code>{`{ portal: true }`}</code>. Each
-        routed page renders <code>&lt;Layout.Header&gt;</code> from inside the{" "}
-        <code>&lt;Outlet /&gt;</code>; it should appear in the card header
-        above the body. Click <em>+ add</em> to confirm live state teleports.
+        The <code>Header</code> slot is <code>{`slot({ portal: true })`}</code>. Each routed
+        page renders <code>&lt;Layout.Header&gt;</code> from inside the{" "}
+        <code>&lt;Outlet /&gt;</code>; it appears in the card header above the body. Click{" "}
+        <em>+ add</em> to confirm live state teleports.
       </p>
       <MemoryRouter initialEntries={["/products"]}>
         <Routes>
