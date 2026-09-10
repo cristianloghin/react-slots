@@ -166,10 +166,16 @@ A `forwardRef` component with slot component functions attached as static proper
 function withProps<P extends object, K extends keyof P>(
   Component: (props: P) => ReactNode,
   boundProps: Pick<P, K>,
-): (props: Omit<P, K> & Partial<Pick<P, K>>) => ReactNode
+): BoundComponent<P, K>
+
+// A forwardRef component; the bound keys are optional, and a `ref` passes
+// through to the wrapped component (typed from its own ref, if it declares one)
+type BoundComponent<P, K> = ForwardRefExoticComponent<
+  PropsWithoutRef<Omit<P, K> & Partial<Pick<P, K>>> & RefAttributes<RefOf<P>>
+>
 ```
 
-Returns a new component with `boundProps` pre-applied. The bound keys become optional on the returned component's prop surface — the consumer no longer needs to provide them, but may still override them (including via `injectSlotProps` at the layout's render site).
+Returns a new component with `boundProps` pre-applied. The wrapped component is rendered as an element, so it may be a plain function, a `forwardRef` or a `memo` component, and a `ref` on the returned component reaches it. The bound keys become optional on the returned component's prop surface — the consumer no longer needs to provide them, but may still override them (including via `injectSlotProps` at the layout's render site).
 
 Bound props act as **defaults**: any prop the consumer passes directly on the slot element takes priority and overrides the bound value.
 
