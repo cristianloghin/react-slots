@@ -1,8 +1,10 @@
 import {
   Context,
+  ForwardedRef,
   ForwardRefExoticComponent,
   MemoExoticComponent,
   PropsWithChildren,
+  PropsWithoutRef,
   ReactElement,
   ReactNode,
   RefAttributes,
@@ -146,20 +148,41 @@ export type ContextComponent<C extends object> = {
 // ─── Builder interfaces ───────────────────────────────────────────────────────
 
 /**
+ * Props handed to a layout's render function: the caller's own props `T`, the
+ * collected slots, and the `ref` given at the call site. The layout decides
+ * where that ref lands — typically its root element — so `E` is the type of
+ * that element, passed as the second type parameter of `render`.
+ */
+export type RenderProps<
+  S extends Record<string, SlotConfig>,
+  T extends object,
+  E,
+> = T & {
+  slots: RenderedSlots<S>;
+  nonSlotChildren: ReactElement[];
+  portal: PortalHelper<S>;
+  ref: ForwardedRef<E>;
+};
+
+/**
+ * The component `render` returns. It is a `forwardRef` component, so a `ref`
+ * at the call site reaches the render function on React 18 and 19 alike — a
+ * plain function component silently drops `ref` on 18.
+ */
+export type LayoutComponent<T extends object, E> = ForwardRefExoticComponent<
+  PropsWithoutRef<T & { children?: ReactNode }> & RefAttributes<E>
+>;
+
+/**
  * Builder interface returned by createComponentWithSlots when a context option is provided.
  * The render function receives provideContext in addition to slots and nonSlotChildren.
  */
 export interface ComponentBuilderWithContext<S extends Record<string, SlotConfig>, C extends object> {
-  render<T extends object = {}>(
+  render<T extends object = {}, E = HTMLElement>(
     render: (
-      props: T & {
-        slots: RenderedSlots<S>;
-        nonSlotChildren: ReactElement[];
-        provideContext: (value: C) => void;
-        portal: PortalHelper<S>;
-      },
+      props: RenderProps<S, T, E> & { provideContext: (value: C) => void },
     ) => ReactElement,
-  ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S> & ContextComponent<C>;
+  ): LayoutComponent<T, E> & ExtractSlotComponents<S> & ContextComponent<C>;
 }
 
 /**
@@ -178,15 +201,12 @@ export interface ComponentBuilder<S extends Record<string, SlotConfig>> {
    *
    * // With custom props
    * .render<{ className: string }>(({ slots, className }) => <div>{slots.Header}</div>)
+   *
+   * // Placing the forwarded ref — E names the element it lands on
+   * .render<{ className: string }, HTMLDivElement>(({ slots, ref }) => <div ref={ref}>{slots.Header}</div>)
    * ```
    */
-  render<T extends object = {}>(
-    render: (
-      props: T & {
-        slots: RenderedSlots<S>;
-        nonSlotChildren: ReactElement[];
-        portal: PortalHelper<S>;
-      },
-    ) => ReactElement,
-  ): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S>;
+  render<T extends object = {}, E = HTMLElement>(
+    render: (props: RenderProps<S, T, E>) => ReactElement,
+  ): LayoutComponent<T, E> & ExtractSlotComponents<S>;
 }

@@ -26,6 +26,7 @@ A type-safe, flexible slot-based component system for React applications. This s
   - [Reusable Slot Groups with `defineSlotGroup`](#reusable-slot-groups-with-defineslotgroup)
   - [Checking Slot Content with `isSlotFilled`](#checking-slot-content-with-isslotfilled)
   - [Teleporting Content with Portal Slots](#teleporting-content-with-portal-slots)
+  - [Forwarding Refs](#forwarding-refs)
 - [TypeScript Support](#typescript-support)
 - [Best Practices](#best-practices)
 - [Real-World Applications](#real-world-applications)
@@ -111,24 +112,39 @@ Define the component's render function with optional custom props.
 
 ```typescript
 // Without context
-render<T extends object = {}>(
-  render: (props: T & { slots: {...}; nonSlotChildren: ReactElement[]; portal: PortalHelper<S> }) => ReactElement
-): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S>
+render<T extends object = {}, E = HTMLElement>(
+  render: (props: RenderProps<S, T, E>) => ReactElement
+): LayoutComponent<T, E> & ExtractSlotComponents<S>
 
 // With context — render function also receives provideContext
-render<T extends object = {}>(
-  render: (props: T & { slots: {...}; nonSlotChildren: ReactElement[]; provideContext: (value: C) => void; portal: PortalHelper<S> }) => ReactElement
-): React.FC<T & { children?: ReactNode }> & ExtractSlotComponents<S> & ContextComponent<C>
+render<T extends object = {}, E = HTMLElement>(
+  render: (props: RenderProps<S, T, E> & { provideContext: (value: C) => void }) => ReactElement
+): LayoutComponent<T, E> & ExtractSlotComponents<S> & ContextComponent<C>
+
+// Where
+type RenderProps<S, T, E> = T & {
+  slots: {...};
+  nonSlotChildren: ReactElement[];
+  portal: PortalHelper<S>;
+  ref: ForwardedRef<E>;
+}
+type LayoutComponent<T, E> = ForwardRefExoticComponent<
+  PropsWithoutRef<T & { children?: ReactNode }> & RefAttributes<E>
+>
 ```
 
 The render function always receives `portal`, a presence-aware boundary helper for portal slots — see [Teleporting Content with Portal Slots](#teleporting-content-with-portal-slots). It is a no-op for components that declare no `{ portal: true }` slots.
 
+It also receives `ref`: the ref given at the layout's call site, for the render function to place on whichever element it belongs to — see [Forwarding Refs](#forwarding-refs). It is `null` when the caller passed none.
+
 **Type parameter `T`**: Custom component props (defaults to `{}` if omitted)
+
+**Type parameter `E`**: The element the render function attaches `ref` to (defaults to `HTMLElement`). Name it when placing the ref on a specific element, e.g. `render<Props, HTMLDivElement>`, so both the render function's `ref` and the returned component's `ref` prop are typed to it.
 
 #### Parameters
 
 **`slotsConfig`**: An object mapping slot names to slot configuration objects. Each configuration can include:
-- `component`: Optional custom slot component. If omitted, the slot's content renders directly without a wrapper element.
+- `component`: Optional custom slot component. If omitted, the slot's content renders directly without a wrapper element. A `ref` on `<Layout.X ref={…}>` is forwarded to it, so it should accept one (`forwardRef` on React 18).
 - `isRequired`: If true, the slot must be provided
 - `multiple`: If true, multiple instances of the slot are collected in an array. Children without a `key` receive one automatically based on their index.
 - `defaultContent`: Default content to use if the slot is not provided
@@ -140,7 +156,7 @@ The render function always receives `portal`, a presence-aware boundary helper f
 
 #### Returns
 
-A React component with slot component functions attached as static properties. When context is configured, the returned component also carries `__storeContext` for use with `useSlotContext`.
+A `forwardRef` component with slot component functions attached as static properties. When context is configured, the returned component also carries `__storeContext` for use with `useSlotContext`.
 
 ---
 
@@ -1226,6 +1242,58 @@ The subscription lives entirely inside that leaf, so a header fill/unfill re-ren
 
 ---
 
+### Forwarding Refs
+
+A layout is a `forwardRef` component. The `ref` given at its call site arrives in the render function as `ref`, and the layout decides which element it lands on. Name that element's type as the second type parameter of `render`:
+
+```tsx
+const Scroller = createComponentWithSlots({ Body: {} }).render<
+  { className?: string },
+  HTMLDivElement
+>(({ slots, ref, className }) => (
+  <div ref={ref} className={className} style={{ overflow: "auto" }}>
+    {slots.Body}
+  </div>
+));
+
+function Page() {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  return (
+    <Scroller ref={scrollRef}>
+      <Scroller.Body>…</Scroller.Body>
+    </Scroller>
+  );
+}
+```
+
+Without a call-site ref, `ref` is `null`. Layouts with a context behave the same.
+
+Slot components forward refs too. A `ref` on `<Layout.X ref={…}>` reaches the slot's configured `component` — for a portal slot it lands on the teleported node, wherever the layout renders it:
+
+```tsx
+const Item = forwardRef<HTMLLIElement, { children?: ReactNode }>(
+  ({ children }, ref) => <li ref={ref}>{children}</li>
+);
+
+const List = createComponentWithSlots({
+  Item: { component: Item, multiple: true },
+}).render(({ slots }) => <ul>{slots.Item}</ul>);
+
+function Page() {
+  const first = useRef<HTMLLIElement>(null);
+  return (
+    <List>
+      <List.Item ref={first}>one</List.Item>
+      <List.Item>two</List.Item>
+    </List>
+  );
+}
+```
+
+The configured component has to accept a ref: `forwardRef` on React 18, or the plain `ref` prop on React 19. Two cases have no element for the ref to land on, so it is dropped: a slot with no `component` (its children render bare), and `asChild`, which dissolves the wrapper — put the ref on the child element itself.
+
+This works identically on React 18 and 19. On 18 a plain function component never sees `ref`, which is why both the layout and the slot wrappers are `forwardRef` components rather than relying on 19's `ref` prop.
+
 ## TypeScript Support
 
 The system provides full TypeScript support with excellent type inference:
@@ -1238,6 +1306,7 @@ The system provides full TypeScript support with excellent type inference:
 - Each `slots.X` is typed to `ReactElement<ComponentProps>` based on the slot's `component` — not `ReactElement<any>`. This includes `multiple` slots, which are typed `ReactElement<ComponentProps>[]`, so element props are readable (see `getSlotProps`)
 - Portal slots are typed `ReactNode` regardless of `multiple` — their position renders a single live boundary element; the registered content lives in a store, not in collected elements
 - `injectSlotProps` infers its `props` argument from the element type, so mismatched props are caught at compile time
+- The layout's forwarded `ref` is typed from `render`'s second type parameter `E`: the render function receives `ref: ForwardedRef<E>` and the returned component accepts `ref?: Ref<E>`
 
 Example of TypeScript inference:
 

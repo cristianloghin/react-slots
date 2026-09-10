@@ -2,6 +2,8 @@ import {
   Children,
   cloneElement,
   createContext,
+  ForwardedRef,
+  forwardRef,
   Fragment,
   isValidElement,
   ReactElement,
@@ -19,9 +21,6 @@ import { assertSafeSlotPath } from "./slotPath";
 import {
   ComponentBuilder,
   ComponentBuilderWithContext,
-  ContextComponent,
-  ExtractSlotComponents,
-  PortalHelper,
   RenderedSlots,
   Slot,
   SlotConfig,
@@ -33,11 +32,31 @@ const SLOT_KEY = Symbol("rst-slot");
 // element claims one id for the lifetime of the mount, used as its store key.
 let nextPortalId = 0;
 
+// The own keys React places on forwardRef / memo objects. A slot wrapper is a
+// forwardRef object itself, so copying these from a wrapped `component` would
+// replace the wrapper's render function or turn it into another element kind.
+const REACT_EXOTIC_KEYS = new Set<PropertyKey>([
+  "$$typeof",
+  "render",
+  "type",
+  "compare",
+]);
+
 function copyEnumerableStatics(target: object, source: object): void {
   for (const key of Reflect.ownKeys(source)) {
+    if (REACT_EXOTIC_KEYS.has(key)) continue;
     const descriptor = Object.getOwnPropertyDescriptor(source, key);
     if (descriptor?.enumerable) Object.defineProperty(target, key, descriptor);
   }
+}
+
+// Spread-friendly ref: adds `ref` only when the caller gave one, so a plain
+// function `component` never sees a stray `ref: null` prop on React 19 and
+// React 18 never warns about a ref on a component that cannot take one.
+function refProp<E>(
+  ref: ForwardedRef<E>,
+): { ref: ForwardedRef<E> } | undefined {
+  return ref === null ? undefined : { ref };
 }
 
 function defineSlotAccessor(
@@ -200,11 +219,10 @@ export function createComponentWithSlots<
       // position. Re-running the effect every render keeps the registered node
       // in sync when the registrant re-renders with new content.
       const Base = config.component as any;
-      const PortalSlot: Slot<any> = ({
-        children,
-        asChild,
-        ...userProps
-      }: any) => {
+      const PortalSlot = forwardRef(function PortalSlot(
+        { children, asChild, ...userProps }: any,
+        ref,
+      ) {
         const stores = useContext(PortalContext);
         const store = stores ? stores[String(slotKey)] : undefined;
 
@@ -225,7 +243,12 @@ export function createComponentWithSlots<
             node = children;
           }
         } else if (Base) {
-          node = <Base {...userProps}>{children}</Base>;
+          // The ref lands on the teleported node, wherever the layout renders it.
+          node = (
+            <Base {...userProps} {...refProp(ref)}>
+              {children}
+            </Base>
+          );
         } else {
           node = children;
         }
@@ -245,7 +268,7 @@ export function createComponentWithSlots<
         });
 
         return null;
-      };
+      }) as unknown as Slot<any>;
 
       if (Base) copyEnumerableStatics(PortalSlot, Base);
       (PortalSlot as any)[SLOT_KEY] = slotSymbol;
@@ -257,10 +280,18 @@ export function createComponentWithSlots<
     if (config.component) {
       const Base = config.component as any;
       // Strip asChild before forwarding — it is consumed during child collection
-      // and must not leak through to the underlying component.
-      wrapper = ({ children, asChild: _, ...userProps }: any) => (
-        <Base {...userProps}>{children}</Base>
-      );
+      // and must not leak through to the underlying component. The ref is
+      // forwarded, so `<Layout.X ref>` reaches a component that accepts one.
+      wrapper = forwardRef(function SlotWrapper(
+        { children, asChild: _, ...userProps }: any,
+        ref,
+      ) {
+        return (
+          <Base {...userProps} {...refProp(ref)}>
+            {children}
+          </Base>
+        );
+      }) as unknown as Slot<any>;
       // Copy static properties (e.g. nested slot components) so that
       // Parent.SlottedChild.NestedSlot resolves correctly at runtime.
       copyEnumerableStatics(wrapper, Base);
@@ -301,21 +332,18 @@ export function createComponentWithSlots<
           )
         : null;
 
-  return {
-    render: <T extends object = {}>(
-      renderFn: (
-        props: T & {
-          slots: RenderedSlots<S>;
-          nonSlotChildren: ReactElement[];
-          provideContext: (value: C) => void;
-          portal: PortalHelper<S>;
-        },
-      ) => ReactElement,
-    ) => {
-      const Component = ({
-        children,
-        ...props
-      }: T & { children?: ReactNode }) => {
+  // `satisfies` contextually types `render` from the context-bearing interface
+  // (the wider of the two), so the arrow adopts its <T, E> signature. Declaring
+  // the generics here instead makes TS unify two generic signatures, and it
+  // cannot infer T through the RenderProps intersection.
+  const builder = {
+    render: (renderFn) => {
+      // forwardRef so the call-site ref reaches the render function on React 18
+      // too; a plain function component only receives `ref` as a prop on 19.
+      const Component = forwardRef(function SlotLayout(
+        { children, ...props }: any,
+        ref: ForwardedRef<unknown>,
+      ) {
         // Per-instance store — lazily initialised on first render so each mounted
         // instance of this component has its own isolated context.
         const storeRef = useRef<SlotContextStore<C> | null>(null);
@@ -515,6 +543,7 @@ export function createComponentWithSlots<
           nonSlotChildren,
           provideContext,
           portal,
+          ref,
         } as any);
 
         // Compose the providers from the inside out: portal provider first so the
@@ -541,7 +570,7 @@ export function createComponentWithSlots<
           );
         }
         return output;
-      };
+      });
 
       Object.entries(slotComponents).forEach(([key, slot]) => {
         defineSlotAccessor(Component, key, slot);
@@ -551,9 +580,10 @@ export function createComponentWithSlots<
         (Component as any).__storeContext = StoreContext;
       }
 
-      return Component as unknown as React.FC<T & { children?: ReactNode }> &
-        ExtractSlotComponents<S> &
-        ContextComponent<C>;
+      // The slot accessors and __storeContext defined above are invisible to
+      // TS; the contextual return type carries the real shape.
+      return Component as any;
     },
-  };
+  } satisfies ComponentBuilderWithContext<S, C>;
+  return builder;
 }
