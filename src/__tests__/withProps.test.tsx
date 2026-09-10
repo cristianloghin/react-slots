@@ -28,7 +28,7 @@ describe("withProps", () => {
 
   it("consumer props override bound props", () => {
     const LeftSidebar = withProps(Sidebar, { side: "left" });
-    // @ts-expect-error — intentionally overriding bound prop to test runtime behavior
+    // Bound props stay optional in the type, so overriding is allowed
     render(<LeftSidebar side="right">content</LeftSidebar>);
     expect(screen.getByTestId("sidebar-right")).toBeInTheDocument();
   });
