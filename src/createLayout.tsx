@@ -33,6 +33,11 @@ import type {
 } from "./types";
 
 const SLOT_KEY = Symbol("rst.slotKey");
+// The shape of the layout a fill belongs to: its leaf paths, in config order.
+// A hot reload re-evaluates a layout's module and gives it fresh slot symbols,
+// while routes that were not re-evaluated still render the previous fills.
+// The shape lets the new layout recognise them (see `leafFor`).
+const SHAPE_KEY = Symbol("rst.shape");
 
 // Names that would collide with a group handle's own members or with object
 // internals when the accessor tree is built.
@@ -284,6 +289,26 @@ export function createLayout(
 
   const accessors = buildTree(config, []);
 
+  const shape = leaves.map((leaf) => leaf.path).join("\n");
+  for (const leaf of leaves) leaf.wrapper[SHAPE_KEY] = shape;
+
+  /**
+   * The leaf a child element fills, or undefined for a plain child. Normally
+   * by the fill's symbol. A fill made by an earlier evaluation of this same
+   * layout — a hot reload swapped the layout in place while its call sites
+   * kept their fills — has a symbol this evaluation never issued, so it is
+   * matched by path instead, provided it was made for a layout of exactly
+   * this shape. Fills of a differently shaped layout stay plain children.
+   */
+  function leafFor(type: unknown): Leaf | undefined {
+    const symbol = (type as any)?.[SLOT_KEY] as symbol | undefined;
+    if (symbol === undefined) return undefined;
+    const own = leafBySymbol.get(symbol);
+    if (own) return own;
+    if ((type as any)[SHAPE_KEY] !== shape) return undefined;
+    return leafByPath.get(String(symbol.description));
+  }
+
   // ── Context ──────────────────────────────────────────────────────────────
 
   const sharedContext = options?.context;
@@ -339,7 +364,7 @@ export function createLayout(
         if (child != null && typeof child !== "boolean") rest.push(child);
         return;
       }
-      const leaf = leafBySymbol.get((child.type as any)?.[SLOT_KEY]);
+      const leaf = leafFor(child.type);
       if (!leaf) {
         rest.push(child);
         return;

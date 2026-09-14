@@ -428,6 +428,10 @@ The layout's external `ref` type is derived from that declaration. Without a cal
 
 Fills forward refs to the slot's `component`, including portal slots, where the ref lands on the teleported node. A slot without a component has nothing to attach a ref to, and `asChild` dissolves the wrapper, so put the ref on the child itself in those cases. Works the same on React 18 and 19.
 
+### Hot reloading
+
+Slot identity is created when a layout's module is evaluated. A hot reload that swaps the layout in place — Vite's Fast Refresh does, when the module exports only components — leaves the call sites rendering fills from the previous evaluation. A layout recognises those: a fill whose identity it did not issue is matched by its path, provided it was made for a layout of exactly the same shape (the same slot paths). Fills of a differently shaped layout are never collected this way, so `Page.Header.Title` and `Dialog.Header.Title` stay distinct.
+
 ## TypeScript
 
 - The slot config is inferred from the object passed to `createLayout`, including `component` types and bound `props`.
