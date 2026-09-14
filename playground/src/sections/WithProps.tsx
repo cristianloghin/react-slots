@@ -1,14 +1,8 @@
-// ─── withProps demo ───────────────────────────────────────────────────────────
+// ─── Bound props demo ─────────────────────────────────────────────────────────
 
-import { createComponentWithSlots, withProps } from "@mikrostack/rst";
+import { createLayout, slot } from "@mikrostack/rst";
 
-function Sidebar({
-  side,
-  children,
-}: {
-  side: "left" | "right";
-  children?: React.ReactNode;
-}) {
+function Sidebar({ side, children }: { side: "left" | "right"; children?: React.ReactNode }) {
   return (
     <aside className={`sidebar sidebar--${side}`}>
       <strong>{side === "left" ? "Left" : "Right"}</strong>
@@ -17,25 +11,29 @@ function Sidebar({
   );
 }
 
-const Layout = createComponentWithSlots({
-  Left: { component: withProps(Sidebar, { side: "left" }) },
-  Right: { component: withProps(Sidebar, { side: "right" }) },
-  Body: { isRequired: true },
-}).render(({ slots }) => (
-  <div className="layout">
-    {slots.Left}
-    <main className="layout__body">{slots.Body}</main>
-    {slots.Right}
-  </div>
-));
+const Layout = createLayout(
+  {
+    Left: slot({ component: Sidebar, props: { side: "left" } }),
+    Right: slot({ component: Sidebar, props: { side: "right" } }),
+    Body: slot({ required: true }),
+  },
+  (_, { slots }) => (
+    <div className="layout">
+      {slots.Left}
+      <main className="layout__body">{slots.Body}</main>
+      {slots.Right}
+    </div>
+  ),
+);
 
 export function WithProps() {
   return (
     <section>
-      <h3>withProps — static prop binding</h3>
+      <h3>Bound props — one component, two slots</h3>
       <p className="hint">
-        Both sidebars share the same <code>Sidebar</code> component.{" "}
-        <code>withProps</code> binds <code>side</code> at definition time.
+        Both sidebars share the same <code>Sidebar</code> component. The slot's{" "}
+        <code>props</code> option binds <code>side</code> at definition time; a fill may
+        still override it.
       </p>
       <Layout>
         <Layout.Left>Nav links</Layout.Left>

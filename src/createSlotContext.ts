@@ -4,8 +4,9 @@ import { SlotContextStore } from "./SlotContextStore";
 export const SLOT_CONTEXT_BRAND: unique symbol = Symbol("rst-slot-context");
 
 /**
- * A standalone slot context created by `createSlotContext`. Structurally a
- * `ContextComponent`, so it can be passed to `useSlotContext` directly.
+ * A standalone slot context created by `createSlotContext`. A layout declares
+ * it with `createLayout(config, { context }, render)` and fills read it with
+ * `useSlotContext(context, selector)`.
  */
 export interface SlotContext<C extends object> {
   readonly [SLOT_CONTEXT_BRAND]: true;
@@ -14,29 +15,32 @@ export interface SlotContext<C extends object> {
 }
 
 /**
- * Creates a slot context that lives independently of the layout that provides
- * it. Pass it to `createComponentWithSlots(config, { context })` in place of a
- * plain defaults object, and consume it with `useSlotContext(theContext, …)`.
+ * Creates a slot context: a typed value a layout instance provides to every
+ * fill beneath it. The context is its own module-level value, so a fill in a
+ * separate file imports the context rather than the layout, which keeps the
+ * module graph acyclic.
  *
- * Use this whenever a slot component lives in its own module: the layout's
- * slot config reads component bindings eagerly at module evaluation, so a slot
- * component importing its layout back (to call `useSlotContext(Layout, …)`)
- * creates an import cycle that breaks bundler HMR. A standalone context is a
- * leaf module both sides can import.
+ * @param defaults - The value read outside any providing layout instance. Match
+ *   it to the layout's initial state to avoid a one-frame mismatch.
  *
  * @example
  * ```tsx
  * // panelContext.ts — leaf module
- * export const PanelContext = createSlotContext({ open: false });
+ * export const PanelContext = createSlotContext({ open: false, toggle: () => {} });
  *
  * // Panel.tsx
- * const Panel = createComponentWithSlots(
- *   { Body: { component: PanelBody } },
+ * const Panel = createLayout(
+ *   { Header: slot({ component: PanelHeader }), Body: slot() },
  *   { context: PanelContext },
- * ).render(({ slots, provideContext }) => { … });
+ *   (_, { slots, provide }) => {
+ *     const [open, setOpen] = useState(false);
+ *     provide({ open, toggle: () => setOpen((o) => !o) });
+ *     return <div>{slots.Header}{open && slots.Body}</div>;
+ *   },
+ * );
  *
- * // PanelBody.tsx — imports the context, not the layout
- * const open = useSlotContext(PanelContext, s => s.open);
+ * // PanelHeader.tsx — imports the context, not the layout
+ * const open = useSlotContext(PanelContext, (s) => s.open);
  * ```
  */
 export function createSlotContext<C extends object>(

@@ -1,51 +1,52 @@
-import { createComponentWithSlots, injectSlotProps } from "@mikrostack/rst";
+import { createLayout, slot } from "@mikrostack/rst";
 
-// ─── PageTitle — slotted component used as PageHeader's Title slot component ──
+// ─── PageTitle — a layout used as PageHeader's Title slot component ──────────
 
-const PageTitle = createComponentWithSlots({
-  Icon: {},
-  Heading: { isRequired: true },
-}).render<{ foo?: number }>(({ slots }) => (
-  <div className="page-title">
-    {slots.Icon && <div className="page-title__icon">{slots.Icon}</div>}
-    <div className="page-title__heading">{slots.Heading}</div>
-  </div>
-));
-
-// ─── PageHeader — slotted component used as Page's Header slot component ──────
-
-const PageHeader = createComponentWithSlots({
-  Title: { component: PageTitle, isRequired: true },
-  Form: {},
-}).render(({ slots }) => (
-  <div className="page-header">
-    <div className="page-header__title">
-      {injectSlotProps(slots.Title, { foo: 78 })}
+const PageTitle = createLayout(
+  { Icon: slot(), Heading: slot({ required: true }) },
+  ({ foo }: { foo?: number }, { slots }) => (
+    <div className="page-title" data-foo={foo}>
+      {slots.Icon.when((icon) => icon && <div className="page-title__icon">{icon}</div>)}
+      <div className="page-title__heading">{slots.Heading}</div>
     </div>
-    {slots.Form && <div className="page-header__form">{slots.Form}</div>}
-  </div>
-));
+  ),
+);
+
+// ─── PageHeader — a layout used as Page's Header slot component ──────────────
+
+const PageHeader = createLayout(
+  { Title: slot({ component: PageTitle, required: true }), Form: slot() },
+  (_, { slots }) => (
+    <div className="page-header">
+      <div className="page-header__title">
+        {/* Inject a render-time prop into the collected Title fill */}
+        {slots.Title.render({ foo: 78 })}
+      </div>
+      {slots.Form.when((form) => form && <div className="page-header__form">{form}</div>)}
+    </div>
+  ),
+);
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-const Page = createComponentWithSlots({
-  Header: { component: PageHeader },
-  Body: { isRequired: true },
-}).render(({ slots }) => (
-  <div className="page">
-    <div className="page__header">{slots.Header}</div>
-    <div className="page__body">{slots.Body}</div>
-  </div>
-));
+const Page = createLayout(
+  { Header: slot({ component: PageHeader }), Body: slot({ required: true }) },
+  (_, { slots }) => (
+    <div className="page">
+      <div className="page__header">{slots.Header}</div>
+      <div className="page__body">{slots.Body}</div>
+    </div>
+  ),
+);
 
 export function BasicSection() {
   return (
     <section>
-      <h3>Normal — three levels of slot collection</h3>
+      <h3>Nested layouts — three levels of slot collection</h3>
       <p className="hint">
-        <code>PageHeader</code> collects <code>Title</code> and{" "}
-        <code>Form</code>. <code>PageTitle</code> collects <code>Icon</code> and{" "}
-        <code>Heading</code>.
+        <code>PageHeader</code> collects <code>Title</code> and <code>Form</code>.{" "}
+        <code>PageTitle</code> collects <code>Icon</code> and <code>Heading</code>. The
+        chained accessors come from the slot's <code>component</code>.
       </p>
       <Page>
         <Page.Header>
