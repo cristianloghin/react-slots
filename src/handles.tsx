@@ -14,12 +14,30 @@ import type {
   SingleHandle,
 } from "./types";
 
-// Every node a handle emits is wrapped in a keyed Fragment. Handles are
-// iterables, and React applies list-key rules to what an iterable yields; a
-// keyed wrapper satisfies them without cloning the collected elements, and
-// passing an element as the Fragment's single child marks it validated.
-function keyed(key: string, node: ReactNode): ReactElement {
-  return createElement(Fragment, { key }, node);
+/**
+ * Every key a handle emits is built here, from two parts.
+ *
+ * The slot's id makes the key unique to one slot. A handle's output does not
+ * only get iterated: `render` and `when` hand it straight back to the layout
+ * author, who places it among siblings the layout owns. A key that said only
+ * "fill" would therefore be the same key on every slot, and two slots placed
+ * side by side would claim one identity. React resolves that by losing track of
+ * one of them and leaving its DOM in the document, which stays invisible until
+ * the surrounding markup changes shape.
+ *
+ * The role makes fill and fallback distinct within one slot, so a slot swapping
+ * between them rebuilds instead of reusing whatever was there.
+ *
+ * Keys are composed nowhere else. If a node needs one, it comes from here.
+ */
+const slotKey = (slotId: string, role: string): string => `${slotId}:${role}`;
+
+// Handles are iterables, and React applies list-key rules to what an iterable
+// yields; a keyed wrapper satisfies them without cloning the collected
+// elements, and passing an element as the Fragment's single child marks it
+// validated.
+function keyed(slotId: string, role: string, node: ReactNode): ReactElement {
+  return createElement(Fragment, { key: slotKey(slotId, role) }, node);
 }
 
 /**
@@ -55,6 +73,7 @@ export class SingleSlotHandle<P> implements SingleHandle<P> {
   constructor(
     readonly element: ReactElement<P> | null,
     private readonly fallback: ReactNode,
+    private readonly id: string,
   ) {}
 
   get filled(): boolean {
@@ -65,14 +84,18 @@ export class SingleSlotHandle<P> implements SingleHandle<P> {
     return this.element?.props;
   }
 
-  private content(): ReactNode {
-    if (this.element) return keyed("fill", this.element);
-    return this.fallback == null ? null : keyed("fallback", this.fallback);
+  private content(extra?: Partial<P>): ReactNode {
+    if (this.element) {
+      const element = extra ? cloneElement(this.element, extra) : this.element;
+      return keyed(this.id, "fill", element);
+    }
+    return this.fallback == null
+      ? null
+      : keyed(this.id, "fallback", this.fallback);
   }
 
   render(extra: Partial<P>): ReactNode {
-    if (!this.element) return this.content();
-    return keyed("fill", cloneElement(this.element, extra));
+    return this.content(extra);
   }
 
   when(render: (content: ReactNode) => ReactNode): ReactNode {
@@ -89,6 +112,7 @@ export class MultiSlotHandle<P> implements MultiHandle<P> {
   constructor(
     readonly elements: ReactElement<P>[],
     private readonly fallback: ReactNode,
+    private readonly id: string,
   ) {}
 
   get filled(): boolean {
@@ -99,17 +123,20 @@ export class MultiSlotHandle<P> implements MultiHandle<P> {
     return this.elements.map((element) => element.props);
   }
 
-  private content(): ReactNode {
-    if (this.elements.length > 0) return keyed("fill", this.elements);
-    return this.fallback == null ? null : keyed("fallback", this.fallback);
+  private content(extra?: Partial<P>): ReactNode {
+    if (this.elements.length > 0) {
+      const elements = extra
+        ? this.elements.map((element) => cloneElement(element, extra))
+        : this.elements;
+      return keyed(this.id, "fill", elements);
+    }
+    return this.fallback == null
+      ? null
+      : keyed(this.id, "fallback", this.fallback);
   }
 
   render(extra: Partial<P>): ReactNode {
-    if (this.elements.length === 0) return this.content();
-    return keyed(
-      "fill",
-      this.elements.map((element) => cloneElement(element, extra)),
-    );
+    return this.content(extra);
   }
 
   when(render: (content: ReactNode) => ReactNode): ReactNode {
@@ -126,12 +153,13 @@ export class PortalSlotHandle implements PortalHandle {
   constructor(
     private readonly store: SlotPortalStore,
     private readonly multiple: boolean,
+    private readonly id: string,
   ) {}
 
   when(render: (content: ReactNode) => ReactNode): ReactNode {
     return (
       <PortalConsumer
-        key="portal"
+        key={slotKey(this.id, "portal")}
         store={this.store}
         multiple={this.multiple}
         render={render}
@@ -140,7 +168,13 @@ export class PortalSlotHandle implements PortalHandle {
   }
 
   *[Symbol.iterator](): Iterator<ReactNode> {
-    yield <PortalConsumer key="portal" store={this.store} multiple={this.multiple} />;
+    yield (
+      <PortalConsumer
+        key={slotKey(this.id, "portal")}
+        store={this.store}
+        multiple={this.multiple}
+      />
+    );
   }
 }
 
@@ -149,6 +183,8 @@ type AnyHandle =
   | MultiSlotHandle<any>
   | PortalSlotHandle
   | GroupHandle<any>;
+
+const GROUP_ID = Symbol("rst.groupId");
 
 const groupProto = {} as Record<string | symbol, unknown>;
 
@@ -165,14 +201,16 @@ Object.defineProperty(groupProto, "filled", {
 Object.defineProperty(groupProto, "when", {
   value(this: Record<string, AnyHandle> & Iterable<ReactNode>, render: (content: ReactNode) => ReactNode): ReactNode {
     const filled = (this as unknown as { filled: boolean }).filled;
-    return render(filled ? keyed("group", Array.from(this)) : null);
+    const id = (this as unknown as Record<symbol, unknown>)[GROUP_ID] as string;
+    return render(filled ? keyed(id, "group", Array.from(this)) : null);
   },
 });
 
 Object.defineProperty(groupProto, Symbol.iterator, {
   value: function* (this: Record<string, AnyHandle>): Iterator<ReactNode> {
+    const id = (this as unknown as Record<symbol, unknown>)[GROUP_ID] as string;
     for (const key of Object.keys(this)) {
-      for (const node of this[key]) yield keyed(key, node);
+      for (const node of this[key]) yield keyed(id, key, node);
     }
   },
 });
@@ -180,8 +218,12 @@ Object.defineProperty(groupProto, Symbol.iterator, {
 /** Builds a group handle whose own enumerable keys are its child handles, in config order. */
 export function createGroupHandle(
   children: Record<string, AnyHandle>,
+  id: string,
 ): GroupHandle<any> {
   const group = Object.create(groupProto) as Record<string, AnyHandle>;
+  // Non-enumerable and symbol-keyed, so `filled` and the iterator keep seeing
+  // only the group's members when they walk it with Object.keys.
+  Object.defineProperty(group, GROUP_ID, { value: id });
   for (const key of Object.keys(children)) {
     Object.defineProperty(group, key, {
       value: children[key],

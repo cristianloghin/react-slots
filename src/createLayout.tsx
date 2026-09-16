@@ -47,6 +47,16 @@ const RESERVED_NAMES = new Set(["__proto__", "constructor", "prototype", "filled
 // one id for the lifetime of the mount, used as its store key.
 let nextPortalId = 0;
 
+// Identity source for React keys. Each slot and each group claims one id when
+// its layout is DEFINED, and keeps it for the layout's lifetime. It must not be
+// derived per render: a key that changes every render tells React the node at
+// that position is a different node, so it tears the slot's subtree down and
+// rebuilds it on every pass. The counter guarantees uniqueness; the random part
+// keeps the value opaque, so nothing outside can come to depend on it.
+let nextSlotId = 0;
+const newSlotId = (): string =>
+  `${(nextSlotId++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
 // The own keys React places on forwardRef / memo objects. A fill wrapper is a
 // forwardRef object itself, so copying these from a wrapped `component` would
 // replace the wrapper's render function or turn it into another element kind.
@@ -172,6 +182,8 @@ export function createLayout(
   const leaves: Leaf[] = [];
   const leafBySymbol = new Map<symbol, Leaf>();
   const leafByPath = new Map<string, Leaf>();
+  // Key identity per slot and per group, by path. The root group is "".
+  const idByPath = new Map<string, string>([["", newSlotId()]]);
 
   const PortalContext = createContext<Record<string, SlotPortalStore> | null>(null);
   let hasPortals = false;
@@ -276,6 +288,7 @@ export function createLayout(
       }
       const entry = tree[name];
       const path = [...prefix, name].join(".");
+      idByPath.set(path, newSlotId());
       if (isSlotDef(entry)) {
         node[name] = buildWrapper(path, entry, Symbol(path)).wrapper;
       } else if (entry && typeof entry === "object") {
@@ -417,19 +430,20 @@ export function createLayout(
         const path = [...prefix, name].join(".");
         if (isSlotDef(entry)) {
           const leaf = leafByPath.get(path)!;
+          const id = idByPath.get(path)!;
           const { multiple, fallback, portal } = leaf.def.options;
           if (portal) {
-            children[name] = new PortalSlotHandle(portalStoresRef.current![path], !!multiple);
+            children[name] = new PortalSlotHandle(portalStoresRef.current![path], !!multiple, id);
           } else if (multiple) {
-            children[name] = new MultiSlotHandle(collected.get(leaf) ?? [], fallback);
+            children[name] = new MultiSlotHandle(collected.get(leaf) ?? [], fallback, id);
           } else {
-            children[name] = new SingleSlotHandle(collected.get(leaf)?.[0] ?? null, fallback);
+            children[name] = new SingleSlotHandle(collected.get(leaf)?.[0] ?? null, fallback, id);
           }
         } else {
           children[name] = buildHandles(entry as SlotTree, [...prefix, name]);
         }
       }
-      return createGroupHandle(children);
+      return createGroupHandle(children, idByPath.get(prefix.join("."))!);
     };
     const slots = buildHandles(config, []);
 
