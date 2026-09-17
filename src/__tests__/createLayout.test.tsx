@@ -101,6 +101,45 @@ describe("createLayout", () => {
     expect(screen.getByTestId("rest")).toHaveTextContent("plain text");
   });
 
+  it("logs an error naming non-slot children the render function never reads", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const Strict = createLayout({ Body: slot() }, (_, { slots }) => <div>{slots.Body}</div>);
+    function Loose() {
+      return null;
+    }
+    render(
+      <Strict>
+        <Strict.Body>b</Strict.Body>
+        <Loose />
+        <p>p</p>
+        text
+      </Strict>,
+    );
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const message = errorSpy.mock.calls[0][0] as string;
+    expect(message).toContain("dropped 3 children");
+    expect(message).toContain("<Loose>, <p>, \"text\"");
+    expect(message).toContain("portalFill()");
+    expect(screen.queryByText("p")).toBeNull();
+  });
+
+  it("does not log when the render function reads children, or when there are none", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <Card>
+        <Card.Body>b</Card.Body>
+        <p>loose</p>
+      </Card>,
+    );
+    const Strict = createLayout({ Body: slot() }, (_, { slots }) => <div>{slots.Body}</div>);
+    render(
+      <Strict>
+        <Strict.Body>b</Strict.Body>
+      </Strict>,
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
   it("looks through fragments when collecting", () => {
     render(
       <Card>

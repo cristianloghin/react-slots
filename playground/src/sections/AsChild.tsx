@@ -7,7 +7,7 @@ const PageTitle = createLayout(
   { Icon: slot(), Heading: slot({ required: true }) },
   (_, { slots }) => (
     <div className="page-title">
-      {slots.Icon.when((icon) => icon && <div className="page-title__icon">{icon}</div>)}
+      {slots.Icon.when((icon) => <div className="page-title__icon">{icon}</div>)}
       <div className="page-title__heading">{slots.Heading}</div>
     </div>
   ),
@@ -20,7 +20,7 @@ const PageHeader = createLayout(
   (_, { slots }) => (
     <div className="page-header">
       <div className="page-header__title">{slots.Title}</div>
-      {slots.Form.when((form) => form && <div className="page-header__form">{form}</div>)}
+      {slots.Form.when((form) => <div className="page-header__form">{form}</div>)}
     </div>
   ),
 );

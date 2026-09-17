@@ -9,7 +9,7 @@ const Card = createLayout(
   { Header: slot(), Body: slot({ required: true }), Footer: slot() },
   ({ className }: { className?: string }, { slots }) => (
     <div className={className}>
-      {slots.Header.when((h) => h && <header>{h}</header>)}
+      {slots.Header.when((h) => <header>{h}</header>)}
       {slots.Body}
       {slots.Footer}
     </div>
@@ -30,6 +30,7 @@ const Card = createLayout(
 - [API Reference](#api-reference)
   - [`createLayout`](#createlayoutconfig-options-render)
   - [`slot`](#slotoptions)
+  - [`portalFill`](#portalfillrender)
   - [Slot handles](#slot-handles)
   - [`createSlotContext` / `useSlotContext`](#createslotcontextdefaults--useslotcontextcontext-selector)
 - [Guide](#guide)
@@ -44,6 +45,7 @@ const Card = createLayout(
   - [Non-slot children](#non-slot-children)
   - [Shared state with a slot context](#shared-state-with-a-slot-context)
   - [Portal slots](#portal-slots)
+  - [Portal fills in components](#portal-fills-in-components)
   - [Refs](#refs)
 - [TypeScript](#typescript)
 - [Migration from 0.x](#migration-from-0x)
@@ -97,6 +99,14 @@ Returns a `forwardRef` component with the fills attached as static properties.
 
 Every fill accepts `asChild` and, as `children`, either nodes or a function of the fill itself (see [Fills in other files](#fills-in-other-files)).
 
+### `portalFill(render)`
+
+```ts
+const ConfirmDialog = portalFill(({ children, ...props }: Props) => <Page.Dialog {...props}>{children}</Page.Dialog>);
+```
+
+Wraps a component that renders portal fills, so a layout recognises it among its direct children and mounts it. `render` receives the props and, second, the forwarded ref. The component must render only portal fills or nothing. See [Portal fills in components](#portal-fills-in-components).
+
 ### Slot handles
 
 Each entry in `api.slots` is one of:
@@ -110,7 +120,7 @@ Each entry in `api.slots` is one of:
 | `element` | The collected element, or `null`. |
 | `props` | The collected element's props, or `undefined`. |
 | `render(extra)` | Renders the fill with `extra` merged into its props. |
-| `when(fn)` | Calls `fn` with the content, or `null` when unfilled, and renders the result. |
+| `when(fn, otherwise?)` | Renders `fn(content)` when filled; otherwise renders `otherwise()`, or nothing. |
 
 **Multiple slot** (`multiple: true`)
 
@@ -118,11 +128,11 @@ Same as above with `elements` (an array) and `props` (an array of props). `rende
 
 **Portal slot** (`portal: true`)
 
-Renders directly and supports `when(fn)`. Its content arrives after commit, so `filled`, `element` and `props` are not available; `when` is how the layout reacts to presence.
+Renders directly and supports `when(fn, otherwise?)`. Its content arrives after commit, so `filled`, `element` and `props` are not available; `when` is how the layout reacts to presence.
 
 **Group** (a nested object in the config)
 
-Has one handle per member, plus `filled` (true when any member is filled) and `when(fn)`. Rendering a group directly emits every member in config order.
+Has one handle per member, plus `filled` (true when any member is filled) and `when(fn, otherwise?)`. Rendering a group directly emits every member in config order.
 
 `filled` and `when` are reserved and cannot be used as slot names.
 
@@ -155,7 +165,7 @@ const Card = createLayout(
       {slots.Header}
       {slots.Title}
       {slots.Body}
-      {slots.Tag.when((tags) => tags && <div className="tags">{tags}</div>)}
+      {slots.Tag.when((tags) => <div className="tags">{tags}</div>)}
       {slots.Footer}
     </div>
   ),
@@ -186,7 +196,7 @@ const Page = createLayout(
   },
   (_, { slots }) => (
     <div>
-      {slots.Header.when((h) => h && <header>{h}</header>)}
+      {slots.Header.when((h) => <header>{h}</header>)}
       <main>{slots.Body}</main>
     </div>
   ),
@@ -310,19 +320,19 @@ const Form = createLayout(
 
 ### Presence
 
-Use `when` to render chrome only when there is content, on a slot or on a whole group:
+Use `when` to render chrome only when there is content, on a slot or on a whole group. The function is called only when the slot is filled; an unfilled slot renders nothing, or the optional second function:
 
 ```tsx
 (_, { slots }) => (
   <article>
-    {slots.Header.when((h) => h && <header>{h}</header>)}
-    {slots.Aside.when((a) => a && <aside>{a}</aside>)}
+    {slots.Header.when((h) => <header>{h}</header>)}
+    {slots.Aside.when((a) => <aside>{a}</aside>, () => <aside className="empty" />)}
     {slots.Body}
   </article>
 )
 ```
 
-`filled` is the boolean form. A fallback does not count as filled.
+`filled` is the boolean form. A fallback does not count as filled, and `when` does not render it; use the slot directly for that.
 
 ### Non-slot children
 
@@ -336,6 +346,8 @@ Anything passed to a layout that is not a fill is handed to the render function 
   </div>
 )
 ```
+
+A layout whose render function never reads `children` drops them, and logs a development error naming each one. A component that renders portal fills is the usual culprit; see [Portal fills in components](#portal-fills-in-components).
 
 ### Shared state with a slot context
 
@@ -378,7 +390,7 @@ const Shell = createLayout(
   { Header: slot({ portal: true }), Body: slot() },
   (_, { slots }) => (
     <div>
-      {slots.Header.when((h) => h && <header>{h}</header>)}
+      {slots.Header.when((h) => <header>{h}</header>)}
       <main>{slots.Body}</main>
     </div>
   ),
@@ -407,6 +419,29 @@ function ProductsPage() {
 - Function children work on portal fills too.
 
 Reach for portal slots only across render boundaries. For same-tree composition, a regular slot is simpler and SSR-safe.
+
+### Portal fills in components
+
+A layout recognises fills by element type, so a component that renders `<Page.Dialog>` inside is not a fill. Deep in the tree that makes no difference: the component mounts, and the fill registers. As a direct child of the layout it is a non-fill child, and a layout that does not render `children` never mounts it, so nothing registers. Wrap such a component with `portalFill` and the layout mounts it, invisibly, wherever it is placed:
+
+```tsx
+// confirmDialog.tsx
+export const ConfirmDialog = portalFill(
+  ({ children, ...props }: PropsWithChildren<DialogProps>) => (
+    <Page.Dialog variant="danger" {...props}>{children}</Page.Dialog>
+  ),
+);
+
+<Page>
+  <ConfirmDialog open={open} onOpenChange={setOpen}>Delete it?</ConfirmDialog>
+  <Page.Body>…</Page.Body>
+</Page>
+```
+
+- The component must render only portal fills, or nothing. It is mounted ahead of the layout's own output, so other markup would be painted there.
+- Hooks, state and context all work inside it; it is an ordinary component. `render` receives the forwarded ref as its second argument.
+- It may carry fills for several portal slots, or for a layout further up: it mounts under whichever layout it is a child of, and each fill finds its own slot through context.
+- Regular slots have no equivalent: their fills must be direct children, or come from a [function child](#fills-in-other-files).
 
 ### Refs
 

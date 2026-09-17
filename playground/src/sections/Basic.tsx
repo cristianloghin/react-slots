@@ -6,7 +6,7 @@ const PageTitle = createLayout(
   { Icon: slot(), Heading: slot({ required: true }) },
   ({ foo }: { foo?: number }, { slots }) => (
     <div className="page-title" data-foo={foo}>
-      {slots.Icon.when((icon) => icon && <div className="page-title__icon">{icon}</div>)}
+      {slots.Icon.when((icon) => <div className="page-title__icon">{icon}</div>)}
       <div className="page-title__heading">{slots.Heading}</div>
     </div>
   ),
@@ -22,7 +22,7 @@ const PageHeader = createLayout(
         {/* Inject a render-time prop into the collected Title fill */}
         {slots.Title.render({ foo: 78 })}
       </div>
-      {slots.Form.when((form) => form && <div className="page-header__form">{form}</div>)}
+      {slots.Form.when((form) => <div className="page-header__form">{form}</div>)}
     </div>
   ),
 );

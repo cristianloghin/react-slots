@@ -40,6 +40,10 @@ function keyed(slotId: string, role: string, node: ReactNode): ReactElement {
   return createElement(Fragment, { key: slotKey(slotId, role) }, node);
 }
 
+/** The callbacks `when` takes: one for content, an optional one for its absence. */
+type WhenRender = (content: ReactNode) => ReactNode;
+type WhenOtherwise = (() => ReactNode) | undefined;
+
 /**
  * The single subscribing leaf for a portal slot — used both at the slot's
  * position and by `when()`. It resolves the registered nodes to one value:
@@ -50,22 +54,24 @@ export function PortalConsumer({
   store,
   multiple,
   render,
+  otherwise,
 }: {
   store: SlotPortalStore;
   multiple?: boolean;
-  render?: (content: ReactNode) => ReactNode;
+  render?: WhenRender;
+  otherwise?: WhenOtherwise;
 }): ReactElement {
   const nodes = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
     store.getSnapshot,
   );
-  const content: ReactNode =
-    nodes.length === 0
-      ? null
-      : multiple
-        ? nodes.map((node, i) => <Fragment key={i}>{node}</Fragment>)
-        : nodes[nodes.length - 1];
+  if (nodes.length === 0) {
+    return <>{render ? (otherwise ? otherwise() : null) : null}</>;
+  }
+  const content: ReactNode = multiple
+    ? nodes.map((node, i) => <Fragment key={i}>{node}</Fragment>)
+    : nodes[nodes.length - 1];
   return <>{render ? render(content) : content}</>;
 }
 
@@ -98,8 +104,9 @@ export class SingleSlotHandle<P> implements SingleHandle<P> {
     return this.content(extra);
   }
 
-  when(render: (content: ReactNode) => ReactNode): ReactNode {
-    return render(this.element ? this.content() : null);
+  when(render: WhenRender, otherwise?: WhenOtherwise): ReactNode {
+    if (this.element) return render(this.content());
+    return otherwise ? otherwise() : null;
   }
 
   *[Symbol.iterator](): Iterator<ReactNode> {
@@ -139,8 +146,9 @@ export class MultiSlotHandle<P> implements MultiHandle<P> {
     return this.content(extra);
   }
 
-  when(render: (content: ReactNode) => ReactNode): ReactNode {
-    return render(this.elements.length > 0 ? this.content() : null);
+  when(render: WhenRender, otherwise?: WhenOtherwise): ReactNode {
+    if (this.elements.length > 0) return render(this.content());
+    return otherwise ? otherwise() : null;
   }
 
   *[Symbol.iterator](): Iterator<ReactNode> {
@@ -156,13 +164,14 @@ export class PortalSlotHandle implements PortalHandle {
     private readonly id: string,
   ) {}
 
-  when(render: (content: ReactNode) => ReactNode): ReactNode {
+  when(render: WhenRender, otherwise?: WhenOtherwise): ReactNode {
     return (
       <PortalConsumer
         key={slotKey(this.id, "portal")}
         store={this.store}
         multiple={this.multiple}
         render={render}
+        otherwise={otherwise}
       />
     );
   }
@@ -199,10 +208,15 @@ Object.defineProperty(groupProto, "filled", {
 });
 
 Object.defineProperty(groupProto, "when", {
-  value(this: Record<string, AnyHandle> & Iterable<ReactNode>, render: (content: ReactNode) => ReactNode): ReactNode {
+  value(
+    this: Record<string, AnyHandle> & Iterable<ReactNode>,
+    render: WhenRender,
+    otherwise?: WhenOtherwise,
+  ): ReactNode {
     const filled = (this as unknown as { filled: boolean }).filled;
     const id = (this as unknown as Record<symbol, unknown>)[GROUP_ID] as string;
-    return render(filled ? keyed(id, "group", Array.from(this)) : null);
+    if (filled) return render(keyed(id, "group", Array.from(this)));
+    return otherwise ? otherwise() : null;
   },
 });
 

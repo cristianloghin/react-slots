@@ -20,6 +20,7 @@ import {
   PortalSlotHandle,
   SingleSlotHandle,
 } from "./handles";
+import { isPortalFill } from "./portalFill";
 import { refProp } from "./refProp";
 import { isSlotDef } from "./slot";
 import { SlotContextStore } from "./SlotContextStore";
@@ -122,6 +123,14 @@ function forEachChild(
   walk(children);
 }
 
+/** A child as named in messages: `<Dialog>`, `<div>`, or `"text"`. */
+function describeChild(child: ReactNode): string {
+  if (!isValidElement(child)) return JSON.stringify(String(child));
+  const type = child.type as string | { displayName?: string; name?: string };
+  if (typeof type === "string") return `<${type}>`;
+  return `<${type.displayName || type.name || "Anonymous"}>`;
+}
+
 /**
  * Creates a layout: a component that collects slot fills from its children and
  * hands them to `render` to arrange.
@@ -142,7 +151,7 @@ function forEachChild(
  *   { Header: slot(), Body: slot({ required: true }) },
  *   ({ className }: { className?: string }, { slots }) => (
  *     <div className={className}>
- *       {slots.Header.when((h) => h && <header>{h}</header>)}
+ *       {slots.Header.when((h) => <header>{h}</header>)}
  *       {slots.Body}
  *     </div>
  *   ),
@@ -368,8 +377,9 @@ export function createLayout(
 
     const collected = new Map<Leaf, ReactElement[]>();
     const rest: ReactNode[] = [];
-    // Portal fills given at the layout's own call site: mounted invisibly inside
-    // the portal provider so their registration effects run.
+    // Portal fills given at the layout's own call site, and `portalFill`
+    // components: mounted invisibly ahead of the body so their registration
+    // effects run.
     const registrars: ReactElement[] = [];
 
     forEachChild(children, (child, index) => {
@@ -379,7 +389,11 @@ export function createLayout(
       }
       const leaf = leafFor(child.type);
       if (!leaf) {
-        rest.push(child);
+        if (isPortalFill(child.type)) {
+          registrars.push(child.key != null ? child : cloneElement(child, { key: index }));
+        } else {
+          rest.push(child);
+        }
         return;
       }
 
@@ -449,10 +463,30 @@ export function createLayout(
 
     // ── Render ──────────────────────────────────────────────────────────
 
-    const api = sharedContext
-      ? { slots, children: rest, provide }
-      : { slots, children: rest };
+    // `children` is a getter so the layout can tell whether the render function
+    // took the non-fill children at all. Destructuring reads it like any access.
+    let childrenRead = false;
+    const api = {
+      slots,
+      get children(): ReactNode[] {
+        childrenRead = true;
+        return rest;
+      },
+      ...(sharedContext ? { provide } : {}),
+    };
     let output: ReactNode = renderFn({ ...props, ref }, api);
+
+    // A child the layout neither collected nor rendered is gone without a
+    // trace. The common cause is a component that renders portal fills and was
+    // not made with `portalFill`, so name the children and say so.
+    if (rest.length > 0 && !childrenRead) {
+      devError(
+        `Layout dropped ${rest.length === 1 ? "a child" : `${rest.length} children`} that ` +
+          `${rest.length === 1 ? "is" : "are"} not a fill (${rest.map(describeChild).join(", ")}): ` +
+          `the render function does not use api.children. A component that renders portal ` +
+          `fills must be created with portalFill().`,
+      );
+    }
 
     if (portalStoresRef.current !== null) {
       // Registrars first: their effects run before the body's, so a portal fill
@@ -462,6 +496,15 @@ export function createLayout(
           {registrars}
           {output}
         </PortalContext.Provider>
+      );
+    } else if (registrars.length > 0) {
+      // No portal slots of its own, but a `portalFill` child may carry fills
+      // for a layout above this one; it still has to mount.
+      output = (
+        <>
+          {registrars}
+          {output}
+        </>
       );
     }
 
