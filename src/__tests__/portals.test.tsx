@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { memo, useState } from "react";
+import { memo, ReactNode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLayout, slot } from "../index";
 
@@ -189,6 +189,34 @@ describe("portal slots", () => {
     expect(headers[0]).toHaveTextContent("A");
     expect(headers[0]).not.toHaveTextContent("B");
     expect(headers[1]).toHaveTextContent("B");
+  });
+
+  it("when() skips render while empty and shows `otherwise`, then swaps on fill", () => {
+    const renderFn = vi.fn((c: ReactNode) => <header data-testid="chrome">{c}</header>);
+    const Chrome = createLayout(
+      { Header: slot({ portal: true }), Body: slot() },
+      (_, { slots }) => (
+        <div>
+          {slots.Header.when(renderFn, () => <p>no header</p>)}
+          {slots.Body}
+        </div>
+      ),
+    );
+    function Shell({ show }: { show: boolean }) {
+      return (
+        <Chrome>
+          <Chrome.Body>{show && <Chrome.Header>hi</Chrome.Header>}</Chrome.Body>
+        </Chrome>
+      );
+    }
+    const { rerender } = render(<Shell show={false} />);
+    expect(renderFn).not.toHaveBeenCalled();
+    expect(screen.getByText("no header")).toBeInTheDocument();
+    rerender(<Shell show />);
+    expect(screen.getByTestId("chrome")).toHaveTextContent("hi");
+    expect(screen.queryByText("no header")).toBeNull();
+    rerender(<Shell show={false} />);
+    expect(screen.getByText("no header")).toBeInTheDocument();
   });
 
   it("logs an error when a portal fill has no layout above it", () => {

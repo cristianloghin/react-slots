@@ -126,8 +126,8 @@ export interface SingleHandle<P> extends Iterable<ReactNode> {
   readonly props: P | undefined;
   /** Render the fill with extra props merged in (the fallback when unfilled). */
   render(extra: Partial<P>): ReactNode;
-  /** Render around the content; receives null when unfilled. */
-  when(render: (content: ReactNode) => ReactNode): ReactNode;
+  /** Render around the content when filled; `otherwise` (or nothing) when not. */
+  when(render: (content: ReactNode) => ReactNode, otherwise?: () => ReactNode): ReactNode;
 }
 
 /** A `multiple` slot as seen by the layout. */
@@ -140,8 +140,8 @@ export interface MultiHandle<P> extends Iterable<ReactNode> {
   readonly props: P[];
   /** Render every fill with extra props merged in (the fallback when unfilled). */
   render(extra: Partial<P>): ReactNode;
-  /** Render around the content; receives null when unfilled. */
-  when(render: (content: ReactNode) => ReactNode): ReactNode;
+  /** Render around the content when filled; `otherwise` (or nothing) when not. */
+  when(render: (content: ReactNode) => ReactNode, otherwise?: () => ReactNode): ReactNode;
 }
 
 /**
@@ -150,7 +150,8 @@ export interface MultiHandle<P> extends Iterable<ReactNode> {
  * to the slot and re-renders just that leaf on fill/unfill.
  */
 export interface PortalHandle extends Iterable<ReactNode> {
-  when(render: (content: ReactNode) => ReactNode): ReactNode;
+  /** Render around the content when filled; `otherwise` (or nothing) when not. */
+  when(render: (content: ReactNode) => ReactNode, otherwise?: () => ReactNode): ReactNode;
 }
 
 export type HandleOf<D> = D extends SlotDef<infer O>
@@ -168,8 +169,8 @@ export type HandleOf<D> = D extends SlotDef<infer O>
  */
 export type GroupHandle<S> = Iterable<ReactNode> & {
   readonly filled: boolean;
-  /** Render around the group's content; receives null when no slot is filled. */
-  when(render: (content: ReactNode) => ReactNode): ReactNode;
+  /** Render around the group's content when any slot is filled; `otherwise` (or nothing) when not. */
+  when(render: (content: ReactNode) => ReactNode, otherwise?: () => ReactNode): ReactNode;
 } & { readonly [K in keyof S]: HandleOf<S[K]> };
 
 // ─── Layout ──────────────────────────────────────────────────────────────────

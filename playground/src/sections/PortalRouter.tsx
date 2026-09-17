@@ -8,7 +8,10 @@ const Layout = createLayout(
   (_, { slots }) => (
     <div className="card">
       <div className="card__header">
-        {slots.Header.when((content) => content ?? <em>— no header from route —</em>)}
+        {slots.Header.when(
+          (content) => content,
+          () => <em>— no header from route —</em>,
+        )}
       </div>
       <div className="card__body">{slots.Body}</div>
     </div>

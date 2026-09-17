@@ -18,9 +18,9 @@ const Card = createLayout(
   },
   (_, { slots }) => (
     <div className="card">
-      {slots.Header.when((h) => h && <div className="card__header">{h}</div>)}
+      {slots.Header.when((h) => <div className="card__header">{h}</div>)}
       <div className="card__body">{slots.Body}</div>
-      {slots.Tag.when((t) => t && <div className="card__tags">{t}</div>)}
+      {slots.Tag.when((t) => <div className="card__tags">{t}</div>)}
       <div className="card__footer">{slots.Footer}</div>
     </div>
   ),
@@ -90,7 +90,7 @@ const PostContent = createLayout(
   { Lead: slot(), Body: slot({ required: true }) },
   (_, { slots }) => (
     <div className="post-content">
-      {slots.Lead.when((l) => l && <p className="post-content__lead">{l}</p>)}
+      {slots.Lead.when((l) => <p className="post-content__lead">{l}</p>)}
       <div className="post-content__body">{slots.Body}</div>
     </div>
   ),
@@ -110,9 +110,9 @@ const Post = createLayout(
       </header>
       <div className="post__body">
         <div className="post__content">{slots.Body.Content}</div>
-        {slots.Body.Aside.when((a) => a && <aside className="post__aside">{a}</aside>)}
+        {slots.Body.Aside.when((a) => <aside className="post__aside">{a}</aside>)}
       </div>
-      {slots.Footer.when((f) => f && <footer className="post__footer">{f}</footer>)}
+      {slots.Footer.when((f) => <footer className="post__footer">{f}</footer>)}
     </div>
   ),
 );
@@ -132,11 +132,11 @@ const Article = createLayout(
     <article className="article">
       <div className="article-header">
         <h2 className="article-header__title">{slots.Header.Title}</h2>
-        {slots.Header.Byline.when((b) => b && <p className="article-header__byline">{b}</p>)}
-        {slots.Header.Tags.when((t) => t && <div className="article-header__tags">{t}</div>)}
+        {slots.Header.Byline.when((b) => <p className="article-header__byline">{b}</p>)}
+        {slots.Header.Tags.when((t) => <div className="article-header__tags">{t}</div>)}
       </div>
       <div className="article__body">{slots.Body}</div>
-      {slots.Footer.when((f) => f && <footer className="article__footer">{f}</footer>)}
+      {slots.Footer.when((f) => <footer className="article__footer">{f}</footer>)}
     </article>
   ),
 );

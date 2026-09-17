@@ -1,5 +1,6 @@
 export { createLayout } from "./createLayout";
 export { slot } from "./slot";
+export { portalFill } from "./portalFill";
 export { createSlotContext } from "./createSlotContext";
 export type { SlotContext } from "./createSlotContext";
 export { useSlotContext } from "./useSlotContext";
